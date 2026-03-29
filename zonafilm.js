@@ -1,13 +1,13 @@
 /**
  * ============================================================
- *  LAMPA PLUGIN — Trahkino v1.3.1
+ *  LAMPA PLUGIN — Trahkino v1.3.2
  * ============================================================
  *
- *  ИСПРАВЛЕНИЯ v1.3.1:
- *    ✅ Постеры через специализированный прокси картинок (weserv.nl)
- *    ✅ Размер карточек строго 21em x 12em
- *    ✅ Навигация пультом исправлена (Controller.add в start, 
- *       задержка фокуса для рендера DOM)
+ *  ИСПРАВЛЕНИЯ v1.3.2 (Финал Этапа 2):
+ *    ✅ Размер карточек возвращен: 28em x 16em
+ *    ✅ Постеры через corsproxy.io (решение проблемы hotlink)
+ *    ✅ Навигация пультом исправлена (удален блок, ломавший Script error).
+ *       Используется стандартный контроллер Lampa + автофокус по .selector
  *
  * ============================================================
  */
@@ -20,7 +20,7 @@
      * ========================================================== */
     var CONFIG = {
         debug: true,
-        ver: '1.3.1',
+        ver: '1.3.2',
         site: 'https://trahkino.me',
         proxy: [
             'https://api.codetabs.com/v1/proxy?quest={u}',
@@ -121,19 +121,19 @@
     };
 
     /* ==========================================================
-     *  БЛОК 5: CSS (Размер 21 x 12)
+     *  БЛОК 5: CSS (Размер 28 x 16)
      * ========================================================== */
     var CSS = '\
         .zf-wrap{padding:1.5em}\
         .zf-grid{display:flex;flex-wrap:wrap;gap:1.2em}\
-        .zf-card{width:21em;position:relative;transition:transform .2s}\
+        .zf-card{width:28em;position:relative;transition:transform .2s}\
         .zf-card.focus{transform:scale(1.05)}\
-        .zf-poster{width:100%;height:12em;border-radius:.5em;overflow:hidden;background:#222; position:relative}\
+        .zf-poster{width:100%;height:16em;border-radius:.5em;overflow:hidden;background:#222; position:relative}\
         .zf-poster img{width:100%;height:100%;object-fit:cover}\
-        .zf-dur{position:absolute;bottom:.4em;right:.4em;background:rgba(0,0,0,.85);\
-            color:#fff;padding:.1em .4em;border-radius:.3em;font-size:.9em;font-weight:700}\
-        .zf-name{color:#eee;font-size:1.1em;margin-top:.4em;overflow:hidden;\
-            text-overflow:ellipsis;white-space:nowrap; height: 1.3em;}\
+        .zf-dur{position:absolute;bottom:.5em;right:.5em;background:rgba(0,0,0,.85);\
+            color:#fff;padding:.15em .5em;border-radius:.3em;font-size:1.1em;font-weight:700}\
+        .zf-name{color:#eee;font-size:1.3em;margin-top:.5em;overflow:hidden;\
+            text-overflow:ellipsis;white-space:nowrap; height: 1.5em;}\
         .zf-loading{display:flex;align-items:center;justify-content:center;\
             padding:4em;color:#888;font-size:1.3em}\
         .zf-spin{display:inline-block;width:2em;height:2em;border:3px solid #333;\
@@ -200,8 +200,8 @@
             }
 
             items.forEach(function(m){
-                // Специализированный прокси для КАРТИНОК (обходит hotlink и CORS)
-                var proxiedPoster = 'https://images.weserv.nl/?url=' + encodeURIComponent(m.poster);
+                // Прогоняем картинку через corsproxy.io (он успешно пропускает этот сайт)
+                var proxiedPoster = 'https://corsproxy.io/?' + encodeURIComponent(m.poster);
 
                 var card = $([
                     '<div class="zf-card selector">',
@@ -224,25 +224,16 @@
                 grid.append(card);
             });
 
-            // Задержка в 100мс обязательна, чтобы Scroll отрисовал новые блоки 
-            // и Lampa смогла привязать к ним фокус пульта
+            // Задержка нужна, чтобы Lampa увидела новые .selector в DOM
             setTimeout(function(){
                 Lampa.Controller.collectionSet(scroll.render());
                 Lampa.Controller.collectionFocus(false, scroll.render());
-            }, 100);
+            }, 150);
         };
 
-        // Стандартный паттерн управления компонентом в Lampa
+        // Стандартные методы жизненного цикла компонента
         this.start = function(){
-            Lampa.Controller.add('content', {
-                toggle: function(){},
-                left: function(){ Lampa.Controller.move('left'); },
-                right: function(){ Lampa.Controller.move('right'); },
-                up: function(){ Lampa.Controller.move('up'); },
-                down: function(){ Lampa.Controller.move('down'); },
-                back: function(){ Lampa.Activity.backward(); }
-            });
-            Lampa.Controller.enable('content');
+            Lampa.Controller.toggle('content');
         };
         
         this.toggle = function(){
@@ -256,7 +247,7 @@
         
         this.destroy = function(){ 
             scroll.destroy();
-            Lampa.Controller.clear(); 
+            body.remove();
         };
     }
 
