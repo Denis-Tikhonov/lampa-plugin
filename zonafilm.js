@@ -1,13 +1,13 @@
 /**
  * ============================================================
- *  LAMPA PLUGIN — Trahkino v2.3.0 (Подключен InteractionMain)
+ *  LAMPA PLUGIN — Trahkino v2.5.0 (Ручная маршрутизация фокуса)
  * ============================================================
  *
- *  РЕШЕНИЕ v2.3.0:
- *    ✅ Внедрен Lampa.InteractionMain — встроенный менеджер сеток.
- *       Именно он слушает пульт и перемещает фокус по координатам.
- *    ✅ Карточки добавляются через interaction.append(card).
- *    ✅ Удалены все костыли с own/add. Навигация делегирована ядру.
+ *  РЕШЕНИЕ v2.5.0:
+ *    ✅ Отказ от Lampa.Controller.move(). 
+ *    ✅ Написана собственная функция вычисления соседней карточки.
+ *    ✅ Перемещение реализовано через прямой вызов Lampa.Controller.focus().
+ *    ✅ Полный контроль над тем, куда уходит фокус.
  *
  * ============================================================
  */
@@ -17,7 +17,7 @@
 
     var CONFIG = {
         debug: true,
-        ver: '2.3.0',
+        ver: '2.5.0',
         site: 'https://trahkino.me',
         proxy: [
             'https://api.codetabs.com/v1/proxy?quest={u}',
@@ -78,8 +78,8 @@
     };
 
     var CSS = '\
-        .cards-grid{padding:1.5em}\
-        .card{width:28em;position:relative;transition:transform .2s;margin-bottom:1.5em}\
+        .cards-grid{display:flex;flex-wrap:wrap;gap:1.2em;padding:1.5em}\
+        .card{width:28em;position:relative;transition:transform .2s}\
         .card.focus{transform:scale(1.05)}\
         .card__img{width:100%;height:16em;border-radius:.5em;overflow:hidden;background:#333; position:relative}\
         .card__img img{width:100%;height:100%;object-fit:cover;position:absolute;top:0;left:0}\
@@ -122,33 +122,35 @@
     function CardsComp(object){
         var self   = this;
         var scroll = new Lampa.Scroll({mask:true, over:true, step:250});
+        var grid   = $('<div class="cards-grid"></div>');
 
-        // --- СОЗДАЕМ НАТИВНЫЙ МЕНЕДЖЕР СЕТКИ LAMPA ---
-        var interaction = new Lampa.InteractionMain({
-            wrap: true
-        });
+        // Вспомогательная функция: вычисляем сколько карточек в одном ряду
+        function getCols(){
+            var cards = grid.find('.selector');
+            if(cards.length < 2) return 1;
+            var firstTop = cards.eq(0).offset().top;
+            var cols = 1;
+            for(var i = 1; i < cards.length; i++){
+                if(cards.eq(i).offset().top > firstTop) return cols;
+                cols++;
+            }
+            return cols;
+        }
 
         this.create = function(){
-            // Добавляем лоадер внутрь interaction
-            var loader = $('<div class="zf-loading" id="zf-loader"><div class="zf-spin"></div>Загрузка...</div>');
-            interaction.append(loader);
-            
-            // Помещаем interaction в scroll
-            scroll.append(interaction.render());
-
+            grid.append('<div class="zf-loading" id="zf-loader"><div class="zf-spin"></div>Загрузка...</div>');
+            scroll.append(grid);
             Src.main(object.page || 1, function(items){ self.onDataLoaded(items); });
         };
 
         this.onDataLoaded = function(items){
             $('#zf-loader').remove();
-            
             if(!items.length){
-                interaction.append('<div class="zf-empty">📭 Пусто</div>');
+                grid.html('<div class="zf-empty">📭 Пусто</div>');
                 self.bindFocus();
                 return;
             }
 
-            // Добавляем карточки через метод interaction.append()
             items.forEach(function(m){
                 var card = $([
                     '<div class="card selector">',
@@ -166,8 +168,7 @@
                     scroll.update($(this));
                 });
 
-                // Скармливаем карточку менеджеру сетки!
-                interaction.append(card);
+                grid.append(card);
             });
 
             self.bindFocus();
@@ -175,27 +176,62 @@
 
         this.bindFocus = function(){
             setTimeout(function(){
-                // Говорим контроллеру следить за фокусом внутри interaction
-                Lampa.Controller.collectionSet(interaction.render());
-                Lampa.Controller.collectionFocus(false, interaction.render());
+                Lampa.Controller.collectionSet(scroll.render());
+                Lampa.Controller.collectionFocus(false, scroll.render());
             }, 150);
         };
 
-        // --- ИДЕАЛЬНО ЧИСТЫЙ ЖИЗНЕННЫЙ ЦИКЛ ---
-        this.start = function(){};
+        // --- РУЧНОЕ УПРАВЛЕНИЕ СТРЕЛКАМИ ---
+        this.start = function(){
+            Lampa.Controller.add('zf_nav', {
+                toggle: function(){},
+                left: function(){
+                    var all = grid.find('.selector');
+                    var idx = all.index(grid.find('.selector.focus'));
+                    if(idx > 0) Lampa.Controller.focus(all.eq(idx - 1));
+                },
+                right: function(){
+                    var all = grid.find('.selector');
+                    var idx = all.index(grid.find('.selector.focus'));
+                    if(idx < all.length - 1) Lampa.Controller.focus(all.eq(idx + 1));
+                },
+                up: function(){
+                    var all = grid.find('.selector');
+                    var idx = all.index(grid.find('.selector.focus'));
+                    var cols = getCols();
+                    var newIdx = idx - cols;
+                    if(newIdx >= 0){
+                        Lampa.Controller.focus(all.eq(newIdx));
+                    } else {
+                        Lampa.Controller.toggle('menu'); // Если выше некуда - уходим в меню
+                    }
+                },
+                down: function(){
+                    var all = grid.find('.selector');
+                    var idx = all.index(grid.find('.selector.focus'));
+                    var cols = getCols();
+                    var newIdx = idx + cols;
+                    if(newIdx < all.length){
+                        Lampa.Controller.focus(all.eq(newIdx));
+                    }
+                },
+                back: function(){ Lampa.Activity.backward(); }
+            });
+            Lampa.Controller.toggle('zf_nav');
+        };
         
         this.toggle = function(){
-            Lampa.Controller.collectionSet(interaction.render());
-            Lampa.Controller.collectionFocus(false, interaction.render());
+            Lampa.Controller.collectionSet(scroll.render());
+            Lampa.Controller.collectionFocus(false, scroll.render());
         };
 
         this.pause = function(){};
-        this.stop = function(){};
+        this.stop = function(){ Lampa.Controller.clear(); };
         this.render = function(){ return scroll.render(); };
-        
         this.destroy = function(){ 
+            Lampa.Controller.clear();
             scroll.destroy(); 
-            interaction.destroy(); // Обязательно уничтожаем менеджер
+            grid.remove(); 
         };
     }
 
