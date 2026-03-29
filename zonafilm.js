@@ -1,382 +1,243 @@
 /**
- * TK v0.3 — Извлечение карточек + тест плеера
+ * ============================================================
+ *  LAMPA PLUGIN — Trahkino v1.7.0 (Архитектурный сдвиг)
+ * ============================================================
+ *
+ *  ИСПРАВЛЕНИЯ v1.7.0:
+ *    ✅ Навигация: Убран ВЕСЬ код самописных контроллеров (add, enable).
+ *       Компонент теперь отдает DOM, а Lampa САМА управляет фокусом 
+ *       и кнопками через свой системный 'content' контроллер.
+ *    ✅ Кнопка "Назад": Заработает автоматически (возвращает в меню).
+ *    ✅ Постеры: Чистый серый CSS-фон (для проверки навигации).
+ *
+ * ============================================================
  */
-(function(){
+
+(function () {
     'use strict';
 
-    var WORKER = 'https://zonaproxy.777b737.workers.dev';
-    var SITE = 'https://trahkino.me';
+    var CONFIG = {
+        debug: true,
+        ver: '1.7.0',
+        site: 'https://trahkino.me',
+        proxy: [
+            'https://api.codetabs.com/v1/proxy?quest={u}',
+            'https://corsproxy.io/?{u}',
+            'https://api.allorigins.win/raw?url={u}'
+        ],
+        pi: 0,
+        timeout: 15000
+    };
 
-    var ICO = '<svg viewBox="0 0 24 24" fill="currentColor">' +
-        '<path d="M18 3v2h-2V3H8v2H6V3H4v18h2v-2h2v2h8v-2h2v2h2V3h-2z' +
-        'M8 17H6v-2h2v2zm0-4H6v-2h2v2zm0-4H6V7h2v2z' +
-        'm10 8h-2v-2h2v2zm0-4h-2v-2h2v2zm0-4h-2V7h2v2z"/></svg>';
+    var D = {
+        log: function(t,m){ if(CONFIG.debug) console.log('[TRK]['+t+']',m); },
+        err: function(t,m){ console.error('[TRK][ERR]['+t+']',m); },
+        noty: function(m){ try{ Lampa.Noty.show(m); }catch(e){} }
+    };
 
-    function get(url, cb){
-        $.ajax({
-            url: WORKER + '/?url=' + encodeURIComponent(url),
-            timeout: 20000,
-            success: function(d){ cb(null, d); },
-            error: function(x,s,e){ cb(s+' '+e, null); }
+    var Net = {
+        get: function(url, ok, fail, _i){
+            var i = typeof _i === 'number' ? _i : CONFIG.pi;
+            if(i >= CONFIG.proxy.length){ if(fail) fail(); return; }
+            var pu = CONFIG.proxy[i].replace('{u}', encodeURIComponent(url));
+            $.ajax({ url: pu, timeout: CONFIG.timeout, success: function(data){
+                CONFIG.pi = i; if(ok) ok(data);
+            }, error: function(){ Net.get(url, ok, fail, i+1); }});
+        }
+    };
+
+    var Src = {
+        main: function(page, cb){
+            D.noty('⏳ Загрузка каталога...');
+            var url = CONFIG.site + (page > 1 ? '/page/'+page+'/' : '/');
+            Net.get(url, function(html){
+                if(typeof html !== 'string'){ cb([]); return; }
+                try {
+                    var doc = new DOMParser().parseFromString(html, 'text/html');
+                    var cards = doc.querySelectorAll('a[href*="/video/"]');
+                    var items = [];
+                    cards.forEach(function(a){
+                        var href = a.getAttribute('href') || '';
+                        if(!href) return;
+                        if(href.indexOf('http') === -1) href = CONFIG.site + href;
+                        var img = a.querySelector('img');
+                        var poster = img ? (img.getAttribute('src') || '') : '';
+                        var titleEl = a.querySelector('.title, strong');
+                        var title = titleEl ? titleEl.textContent.trim() : 'Без названия';
+                        var durEl = a.querySelector('.duration');
+                        var duration = durEl ? durEl.textContent.trim() : '';
+                        if(title && poster) items.push({ title: title, url: href, poster: poster, duration: duration });
+                    });
+                    if(items.length > 0) D.noty('✅ Загружено: '+items.length);
+                    else D.noty('⚠ Пусто');
+                    cb(items);
+                } catch(e){ cb([]); }
+            }, function(){ D.noty('⚠ Ошибка сети'); cb([]); });
+        },
+        search: function(q, cb){ D.noty('Поиск на этапе 3'); cb([]); },
+        cats: function(){ return []; }
+    };
+
+    var CSS = '\
+        .zf-wrap{padding:1.5em}\
+        .zf-grid{display:flex;flex-wrap:wrap;gap:1.2em}\
+        .zf-card{width:28em;position:relative;transition:transform .2s}\
+        .zf-card.focus{transform:scale(1.05)}\
+        .zf-poster{width:100%;height:16em;border-radius:.5em;overflow:hidden;background:#333; position:relative}\
+        .zf-poster img{width:100%;height:100%;object-fit:cover;position:absolute;top:0;left:0}\
+        .zf-dur{position:absolute;bottom:.5em;right:.5em;background:rgba(0,0,0,.85);\
+            color:#fff;padding:.15em .5em;border-radius:.3em;font-size:1.1em;font-weight:700}\
+        .zf-name{color:#eee;font-size:1.3em;margin-top:.5em;overflow:hidden;\
+            text-overflow:ellipsis;white-space:nowrap; height: 1.5em;}\
+        .zf-loading{display:flex;align-items:center;justify-content:center;\
+            padding:4em;color:#888;font-size:1.3em}\
+        .zf-spin{display:inline-block;width:2em;height:2em;border:3px solid #333;\
+            border-top-color:#4FC3F7;border-radius:50%;margin-right:.8em;\
+            animation:zfspin .7s linear infinite}\
+        @keyframes zfspin{to{transform:rotate(360deg)}}\
+        .zf-empty{text-align:center;padding:4em;color:#666;font-size:1.3em;width:100%}\
+    ';
+    $('#zf-css').remove();
+    $('<style>').attr('id','zf-css').text(CSS).appendTo('head');
+
+    function showMainMenu(){
+        Lampa.Select.show({
+            title: '🎬 Trahkino',
+            items: [
+                { title: '🔍 Поиск', subtitle: '(Этап 3)', action: 'search' },
+                { title: '📽 Последние видео', subtitle: 'Каталог', action: 'all' },
+                { title: '← Назад', subtitle: '', action: 'back' }
+            ],
+            onBack: function(){ Lampa.Controller.toggle('content'); },
+            onSelect: function(item){
+                if(item.action === 'back' || item.action === 'search'){
+                    if(item.action === 'back') Lampa.Controller.toggle('content');
+                    return;
+                }
+                if(item.action === 'all'){
+                    Lampa.Activity.push({ url: '', title: 'Последние видео', component: 'zf_cards', page: 1 });
+                }
+            }
         });
     }
 
-    function runDiag(){
-        Lampa.Noty.show('⏳ Извлекаю карточки...');
+    function CardsComp(object){
+        var self   = this;
+        // Lampa.Scroll используется ТОЛЬКО для визуального скролла мышкой/колесом,
+        // а не для перехвата кнопок пульта!
+        var scroll = new Lampa.Scroll({mask:true, over:true, step:250});
+        var body   = $('<div class="zf-wrap"></div>');
+        var grid   = $('<div class="zf-grid"></div>');
 
-        get(SITE, function(err, data){
-            if(err){
-                Lampa.Noty.show('❌ '+err);
+        this.create = function(){
+            body.append('<div class="zf-loading" id="zf-loader"><div class="zf-spin"></div>Загрузка...</div>');
+            body.append(grid);
+            scroll.append(body);
+            Src.main(object.page || 1, function(items){ self.onDataLoaded(items); });
+        };
+
+        this.onDataLoaded = function(items){
+            $('#zf-loader').remove();
+            if(!items.length){
+                grid.html('<div class="zf-empty">📭 Пусто</div>');
+                self.bindFocus();
                 return;
             }
 
-            var html = typeof data === 'string' ? data : '';
-            var items = [];
+            items.forEach(function(m){
+                var card = $([
+                    '<div class="zf-card selector">',
+                      '<div class="zf-poster"></div>',
+                      m.duration ? '<div class="zf-dur">'+m.duration+'</div>' : '',
+                      '<div class="zf-name">'+m.title+'</div>',
+                    '</div>'
+                ].join(''));
 
-            /* ============================================
-             * 1. Парсим ВСЕ .item блоки
-             * ============================================ */
-
-            /*
-             * Ищем каждый <div class="item"> ... </div>
-             * Внутри: <a href="..."><div class="thumb">
-             *   <img src/data-src/data-original="...">
-             *   <span class="duration">...</span>
-             * </a>
-             * <div class="title"><a>НАЗВАНИЕ</a></div>
-             */
-
-            /* Извлекаем первые 5 item блоков для анализа */
-            var itemBlocks = [];
-            var pos = 0;
-            for(var i = 0; i < 5; i++){
-                var start = html.indexOf('class="item"', pos);
-                if(start === -1) break;
-
-                /* Находим открывающий тег */
-                var tagStart = html.lastIndexOf('<', start);
-
-                /* Ищем конец блока — следующий item или конец list-videos */
-                var nextItem = html.indexOf('class="item"', start + 15);
-                var endList = html.indexOf('</div>\n</div>', start);
-
-                var end;
-                if(nextItem !== -1 && (endList === -1 || nextItem < endList)){
-                    end = html.lastIndexOf('<', nextItem);
-                } else if(endList !== -1){
-                    end = endList + 13;
-                } else {
-                    end = start + 2000;
-                }
-
-                var block = html.substring(tagStart, Math.min(end, tagStart + 2000));
-                itemBlocks.push(block);
-                pos = start + 15;
-            }
-
-            items.push({
-                title: '📦 Найдено item блоков: ' + itemBlocks.length,
-                subtitle: ''
-            });
-
-            /* Показываем сырой HTML первого блока */
-            if(itemBlocks.length > 0){
-                items.push({ title: '━━ СЫРОЙ HTML карточки #1 ━━', subtitle: '' });
-                var raw = itemBlocks[0];
-                var chunks = raw.match(/.{1,100}/g) || [];
-                chunks.slice(0, 12).forEach(function(c){
-                    items.push({ title: '', subtitle: c });
+                card.on('hover:enter', function(){
+                    openInBrowser(m.url, m.title);
                 });
-            }
 
-            /* ============================================
-             * 2. Пробуем парсить карточки
-             * ============================================ */
-            items.push({ title: '━━ ПАРСИНГ ━━', subtitle: '' });
-
-            itemBlocks.forEach(function(block, idx){
-                /* href */
-                var hrefM = block.match(/href="([^"]*\/video\/[^"]*)"/);
-                var href = hrefM ? hrefM[1] : '?';
-
-                /* img src — пробуем разные атрибуты */
-                var imgM = block.match(/<img[^>]+(?:data-original|data-src|src)="([^"]+)"/);
-                var img = imgM ? imgM[1] : '?';
-
-                /* title/alt */
-                var titleM = block.match(/(?:alt|title)="([^"]+)"/);
-                var title = titleM ? titleM[1] : '?';
-
-                /* Если title не найден в alt, ищем в отдельном div */
-                if(title === '?'){
-                    var titleM2 = block.match(/<(?:div|span)[^>]*class="[^"]*title[^"]*"[^>]*>[\s\S]*?<a[^>]*>([^<]+)/);
-                    if(titleM2) title = titleM2[1].trim();
-                }
-
-                /* Если ещё не найден */
-                if(title === '?'){
-                    var titleM3 = block.match(/>([^<]{5,80})</);
-                    if(titleM3) title = titleM3[1].trim();
-                }
-
-                /* duration */
-                var durM = block.match(/(?:duration|time)[^>]*>([^<]+)/);
-                var dur = durM ? durM[1].trim() : '?';
-
-                items.push({
-                    title: '#' + (idx+1) + ': ' + title.substring(0, 60),
-                    subtitle: 'href=' + href.substring(0, 50) + ' dur=' + dur
+                // Скролл должен следить за фокусом для прокрутки списка
+                card.on('hover:focus', function(){
+                    scroll.update($(this));
                 });
-                items.push({
-                    title: '   img:',
-                    subtitle: img.substring(0, 100)
-                });
+
+                grid.append(card);
             });
 
-            /* ============================================
-             * 3. Анализ пагинации
-             * ============================================ */
-            items.push({ title: '━━ ПАГИНАЦИЯ ━━', subtitle: '' });
+            self.bindFocus();
+        };
 
-            /* Ищем блок пагинации */
-            var pagM = html.match(/class="[^"]*paginat[^"]*"[\s\S]*?<\/(?:div|nav|ul)>/i);
-            if(pagM){
-                var pagHtml = pagM[0];
-                var pagLinks = [];
-                var re = /href="([^"]+)"/g;
-                var m;
-                while((m = re.exec(pagHtml)) !== null){
-                    pagLinks.push(m[1]);
-                }
-                items.push({ title: 'Пагинация найдена: ' + pagLinks.length + ' ссылок', subtitle: '' });
-                pagLinks.slice(0, 5).forEach(function(p){
-                    items.push({ title: '', subtitle: p });
-                });
-            } else {
-                /* Ищем ?page= или /page/ */
-                var allPages = [];
-                var re2 = /href="([^"]*(?:\?page=|\/page\/)\d+[^"]*)"/gi;
-                while((m = re2.exec(html)) !== null){
-                    if(allPages.indexOf(m[1]) === -1) allPages.push(m[1]);
-                }
+        // Сообщаем системному контроллеру Lampa, где лежат наши .selector
+        this.bindFocus = function(){
+            setTimeout(function(){
+                Lampa.Controller.collectionSet(scroll.render());
+                Lampa.Controller.collectionFocus(false, scroll.render());
+            }, 150);
+        };
 
-                /* Или просто ?from_videos= ?from= ?p= */
-                if(allPages.length === 0){
-                    var re3 = /href="([^"]*(?:\?from|mode=)[^"]*)"/gi;
-                    while((m = re3.exec(html)) !== null){
-                        if(allPages.indexOf(m[1]) === -1) allPages.push(m[1]);
-                    }
-                }
+        // --- ЖИЗНЕННЫЙ ЦИКЛ (Полное доверие к системе Lampa) ---
+        
+        this.start = function(){
+            // НИЧЕГО НЕ ДЕЛАЕМ. 
+            // Lampa.Activity сама включит нужный слой и контроллер 'content'.
+        };
+        
+        this.toggle = function(){
+            // НИЧЕГО НЕ ДЕЛАЕМ.
+        };
 
-                if(allPages.length > 0){
-                    items.push({ title: 'Страницы:', subtitle: '' });
-                    allPages.slice(0, 5).forEach(function(p){
-                        items.push({ title: '', subtitle: p });
-                    });
-                } else {
-                    items.push({ title: '❓ Пагинация не найдена', subtitle: 'Возможно AJAX/бесконечная прокрутка' });
-                }
-            }
-
-            /* ============================================
-             * 4. Тест embed плеера
-             * ============================================ */
-            items.push({ title: '━━ ТЕСТ ПЛЕЕРА ━━', subtitle: '' });
-            items.push({
-                title: '▶ Тест embed плеера',
-                subtitle: SITE + '/embeded/417554/',
-                action: 'embed',
-                url: SITE + '/embeded/417554/'
-            });
-
-            /* Тест страницы категории */
-            items.push({
-                title: '📂 Тест категории (стр.2)',
-                subtitle: '',
-                action: 'cat2'
-            });
-
-            items.push({ title: '━━━━━━━━━━━', subtitle: '' });
-            items.push({ title: '← Назад', subtitle: '', action: 'back' });
-
-            Lampa.Select.show({
-                title: '🔧 TK Карточки',
-                items: items,
-                onBack: function(){ Lampa.Controller.toggle('content'); },
-                onSelect: function(item){
-                    if(item.action === 'back'){
-                        Lampa.Controller.toggle('content');
-                        return;
-                    }
-                    if(item.action === 'embed'){
-                        testEmbed(item.url);
-                        return;
-                    }
-                    if(item.action === 'cat2'){
-                        testPagination();
-                        return;
-                    }
-                }
-            });
-        });
+        this.pause = function(){};
+        
+        this.stop = function(){
+            // НИЧЕГО НЕ ДЕЛАЕМ. Система сама выключит контроллер.
+        };
+        
+        this.render = function(){ 
+            return scroll.render(); 
+        };
+        
+        this.destroy = function(){ 
+            scroll.destroy(); 
+            body.remove(); 
+        };
     }
 
-    /**
-     * Тест embed — ищем прямую ссылку на видео
-     */
-    function testEmbed(url){
-        Lampa.Noty.show('⏳ Анализ плеера...');
-
-        get(url, function(err, data){
-            var items = [];
-
-            if(err){
-                items.push({ title: '❌ ' + err, subtitle: '' });
-            } else {
-                var html = typeof data === 'string' ? data : '';
-                items.push({ title: '✅ ' + html.length + ' симв', subtitle: url });
-
-                /* Ищем video source */
-                var sources = [];
-                var re = /(?:src|file|video_url|source)\s*[:=]\s*['"](https?:\/\/[^'"]+\.(?:mp4|m3u8|webm))['"]/gi;
-                var m;
-                while((m = re.exec(html)) !== null){
-                    sources.push(m[1]);
-                }
-
-                /* Ищем в JSON */
-                var re2 = /['"](https?:\/\/[^'"]+\.(?:mp4|m3u8|webm))['"]/gi;
-                while((m = re2.exec(html)) !== null){
-                    if(sources.indexOf(m[1]) === -1) sources.push(m[1]);
-                }
-
-                items.push({ title: '🎥 Видео URL: ' + sources.length, subtitle: '' });
-                sources.forEach(function(s){
-                    items.push({ title: '', subtitle: s.substring(0, 120) });
-                });
-
-                /* iframe внутри embed */
-                var iframes = [];
-                var re3 = /<iframe[^>]+src="([^"]+)"/gi;
-                while((m = re3.exec(html)) !== null){
-                    iframes.push(m[1]);
-                }
-                if(iframes.length){
-                    items.push({ title: '📺 Iframes:', subtitle: '' });
-                    iframes.forEach(function(f){
-                        items.push({ title: '', subtitle: f.substring(0, 120) });
-                    });
-                }
-
-                /* Показываем HTML плеера */
-                items.push({ title: '━━ HTML: ━━', subtitle: '' });
-                var chunks = html.match(/.{1,100}/g) || [];
-                chunks.slice(0, 15).forEach(function(c){
-                    items.push({ title: '', subtitle: c });
-                });
+    function openInBrowser(url, title){
+        D.noty('▶ Открываю: ' + title);
+        try {
+            if(typeof Lampa.Android !== 'undefined' && Lampa.Android.openUrl){
+                Lampa.Android.openUrl(url);
+                return;
             }
-
-            items.push({ title: '← Назад', subtitle: '', action: 'back' });
-
-            Lampa.Select.show({
-                title: '🎥 Embed анализ',
-                items: items,
-                onBack: function(){ Lampa.Controller.toggle('content'); },
-                onSelect: function(item){
-                    if(item.action === 'back') Lampa.Controller.toggle('content');
-                }
-            });
-        });
+        } catch(e){}
+        try { window.open(url,'_blank'); } catch(e){}
     }
 
-    /**
-     * Тест пагинации — пробуем разные URL
-     */
-    function testPagination(){
-        Lampa.Noty.show('⏳ Тест пагинации...');
+    Lampa.Component.add('zf_cards', CardsComp);
 
-        var urls = [
-            SITE + '/?page=2',
-            SITE + '/page/2/',
-            SITE + '/?from=2',
-            SITE + '/?mode=async&function=get_block&block_id=list_videos_latest_videos_list&sort_by=post_date&from=2',
-            SITE + '/latest-updates/2/',
-            SITE + '/new/2/',
-            SITE + '/categories/lyubitelskiy-seks/2/'
-        ];
-
-        var results = [];
-        var done = 0;
-
-        urls.forEach(function(u, idx){
-            get(u, function(err, data){
-                var html = typeof data === 'string' ? data : '';
-                var videoCount = 0;
-                if(html){
-                    var re = /\/video\/\d+\//g;
-                    var matches = html.match(re) || [];
-                    /* Уникальные */
-                    var unique = {};
-                    matches.forEach(function(m){ unique[m] = true; });
-                    videoCount = Object.keys(unique).length;
-                }
-
-                results[idx] = {
-                    url: u,
-                    ok: !err && videoCount > 0,
-                    videos: videoCount,
-                    err: err || '',
-                    len: html.length
-                };
-
-                done++;
-                if(done >= urls.length) showPagResults(results);
-            });
-        });
-    }
-
-    function showPagResults(results){
-        var items = [];
-        items.push({ title: '━━ ПАГИНАЦИЯ ТЕСТ ━━', subtitle: '' });
-
-        results.forEach(function(r){
-            var icon = r.ok ? '✅' : '❌';
-            items.push({
-                title: icon + ' Видео: ' + r.videos,
-                subtitle: r.url
-            });
-        });
-
-        items.push({ title: '← Назад', subtitle: '', action: 'back' });
-
-        Lampa.Select.show({
-            title: '📄 Пагинация',
-            items: items,
-            onBack: function(){ Lampa.Controller.toggle('content'); },
-            onSelect: function(item){
-                if(item.action === 'back') Lampa.Controller.toggle('content');
-            }
-        });
-    }
+    var ICO = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M18 4l2 4h-3l-2-4h-2l2 4h-3l-2-4H8l2 4H7L5 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V4h-4z"/></svg>';
 
     function addMenu(){
-        if($('[data-action="tkdiag"]').length) return;
-        var li = $('<li class="menu__item selector" data-action="tkdiag">'+
+        if($('[data-action="trahkino"]').length) return;
+        var li = $('<li class="menu__item selector" data-action="trahkino">'+
             '<div class="menu__ico">'+ICO+'</div>'+
-            '<div class="menu__text">TK Карточки</div></li>');
-        li.on('hover:enter', function(){ runDiag(); });
+            '<div class="menu__text">Trahkino</div></li>');
+        li.on('hover:enter', function(){ showMainMenu(); });
         var list = $('.menu .menu__list');
-        if(list.length) list.eq(0).append(li);
-        else { var ul = $('.menu ul'); if(ul.length) ul.eq(0).append(li); }
+        if(list.length){ list.eq(0).append(li); return; }
+        var ul = $('.menu ul');
+        if(ul.length) ul.eq(0).append(li);
     }
 
     function init(){
-        addMenu();
-        Lampa.Noty.show('🔧 TK v0.3');
+        try {
+            addMenu();
+            D.noty('🎬 Trahkino v'+CONFIG.ver);
+        } catch(e){ D.err('Boot',e.message); }
     }
 
     if(window.appready) init();
-    else Lampa.Listener.follow('app', function(e){
-        if(e.type === 'ready') init();
-    });
+    else Lampa.Listener.follow('app', function(e){ if(e.type === 'ready') init(); });
+
 })();
