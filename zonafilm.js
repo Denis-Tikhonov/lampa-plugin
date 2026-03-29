@@ -1,14 +1,13 @@
 /**
  * ============================================================
- *  LAMPA PLUGIN — Trahkino v2.6.0 (Полный контроль)
+ *  LAMPA PLUGIN — Trahkino v2.4.0 (Свойство render найдено!)
  * ============================================================
  *
- *  РЕШЕНИЕ v2.6.0:
- *    ✅ Используем Lampa.Controller.add('content') как вы указали.
- *    ✅ Навигация реализована вручную через математику (getCols).
- *    ✅ Перемещение через прямой Lampa.Controller.focus().
- *    ✅ В destroy/stop используется Lampa.Controller.clear() 
- *       (чтобы избежать ошибки 'remove is not a function').
+ *  РЕШЕНИЕ v2.4.0:
+ *    ✅ Откат от InteractionMain к стабильному Lampa.Scroll.
+ *    ✅ В объект контроллера добавлено свойство render: scroll.render().
+ *       Теперь Lampa.Controller.move() ЗНАЕТ, где искать карточки.
+ *    ✅ Добавлена логика выхода в меню при достижении края сетки.
  *
  * ============================================================
  */
@@ -18,7 +17,7 @@
 
     var CONFIG = {
         debug: true,
-        ver: '2.6.0',
+        ver: '2.4.0',
         site: 'https://trahkino.me',
         proxy: [
             'https://api.codetabs.com/v1/proxy?quest={u}',
@@ -125,19 +124,6 @@
         var scroll = new Lampa.Scroll({mask:true, over:true, step:250});
         var grid   = $('<div class="cards-grid"></div>');
 
-        // Вычисляем количество карточек в одном ряду
-        function getCols(){
-            var cards = grid.find('.selector');
-            if(cards.length < 2) return 1;
-            var firstTop = cards.eq(0).offset().top;
-            var cols = 1;
-            for(var i = 1; i < cards.length; i++){
-                if(cards.eq(i).offset().top > firstTop) return cols;
-                cols++;
-            }
-            return cols;
-        }
-
         this.create = function(){
             grid.append('<div class="zf-loading" id="zf-loader"><div class="zf-spin"></div>Загрузка...</div>');
             scroll.append(grid);
@@ -182,54 +168,26 @@
             }, 150);
         };
 
-        // --- ЯВНЫЙ КОНТРОЛЛЕР 'content' С РУЧНОЙ МАТЕМАТИКОЙ ---
+        // --- КОНТРОЛЛЕР С ПЕРЕДАЧЕЙ DOM КОРНЯ ---
         this.start = function(){
-            // Очищаем старые контроллеры перед добавлением нового
-            Lampa.Controller.clear();
-            
-            Lampa.Controller.add('content', {
-                toggle: function(){
-                    Lampa.Controller.collectionSet(scroll.render());
-                    Lampa.Controller.collectionFocus(false, scroll.render());
+            // Создаем выделенный контроллер и ОБЯЗАТЕЛЬНО передаем ему 
+            // корневой DOM элемент через свойство render!
+            Lampa.Controller.add('zf_grid', {
+                render: scroll.render(), 
+                toggle: function(){},
+                left: function(){ 
+                    if(!Lampa.Controller.move('left')) Lampa.Controller.toggle('menu'); 
                 },
-                left: function(){
-                    var all = grid.find('.selector');
-                    var idx = all.index(grid.find('.selector.focus'));
-                    if(idx > 0) Lampa.Controller.focus(all.eq(idx - 1));
+                right: function(){ Lampa.Controller.move('right'); },
+                up: function(){ 
+                    if(!Lampa.Controller.move('up')) Lampa.Controller.toggle('menu'); 
                 },
-                right: function(){
-                    var all = grid.find('.selector');
-                    var idx = all.index(grid.find('.selector.focus'));
-                    if(idx < all.length - 1) Lampa.Controller.focus(all.eq(idx + 1));
-                },
-                up: function(){
-                    var all = grid.find('.selector');
-                    var idx = all.index(grid.find('.selector.focus'));
-                    var cols = getCols();
-                    var newIdx = idx - cols;
-                    if(newIdx >= 0){
-                        Lampa.Controller.focus(all.eq(newIdx));
-                    } else {
-                        // Если уперлись в потолок - отдаем фокус в меню
-                        Lampa.Controller.toggle('menu');
-                    }
-                },
-                down: function(){
-                    var all = grid.find('.selector');
-                    var idx = all.index(grid.find('.selector.focus'));
-                    var cols = getCols();
-                    var newIdx = idx + cols;
-                    if(newIdx < all.length){
-                        Lampa.Controller.focus(all.eq(newIdx));
-                    }
-                },
-                back: function(){ 
-                    Lampa.Activity.backward(); 
-                }
+                down: function(){ Lampa.Controller.move('down'); },
+                back: function(){ Lampa.Activity.backward(); }
             });
             
-            // Активируем наш контроллер
-            Lampa.Controller.toggle('content');
+            // Активируем именно его
+            Lampa.Controller.toggle('zf_grid');
         };
         
         this.toggle = function(){
@@ -240,7 +198,6 @@
         this.pause = function(){};
         
         this.stop = function(){
-            // Используем clear() вместо remove()!
             Lampa.Controller.clear();
         };
         
