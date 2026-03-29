@@ -1,13 +1,14 @@
 /**
  * ============================================================
- *  LAMPA PLUGIN — Trahkino v2.5.0 (Ручная маршрутизация фокуса)
+ *  LAMPA PLUGIN — Trahkino v2.6.0 (Полный контроль)
  * ============================================================
  *
- *  РЕШЕНИЕ v2.5.0:
- *    ✅ Отказ от Lampa.Controller.move(). 
- *    ✅ Написана собственная функция вычисления соседней карточки.
- *    ✅ Перемещение реализовано через прямой вызов Lampa.Controller.focus().
- *    ✅ Полный контроль над тем, куда уходит фокус.
+ *  РЕШЕНИЕ v2.6.0:
+ *    ✅ Используем Lampa.Controller.add('content') как вы указали.
+ *    ✅ Навигация реализована вручную через математику (getCols).
+ *    ✅ Перемещение через прямой Lampa.Controller.focus().
+ *    ✅ В destroy/stop используется Lampa.Controller.clear() 
+ *       (чтобы избежать ошибки 'remove is not a function').
  *
  * ============================================================
  */
@@ -17,7 +18,7 @@
 
     var CONFIG = {
         debug: true,
-        ver: '2.5.0',
+        ver: '2.6.0',
         site: 'https://trahkino.me',
         proxy: [
             'https://api.codetabs.com/v1/proxy?quest={u}',
@@ -124,7 +125,7 @@
         var scroll = new Lampa.Scroll({mask:true, over:true, step:250});
         var grid   = $('<div class="cards-grid"></div>');
 
-        // Вспомогательная функция: вычисляем сколько карточек в одном ряду
+        // Вычисляем количество карточек в одном ряду
         function getCols(){
             var cards = grid.find('.selector');
             if(cards.length < 2) return 1;
@@ -181,10 +182,16 @@
             }, 150);
         };
 
-        // --- РУЧНОЕ УПРАВЛЕНИЕ СТРЕЛКАМИ ---
+        // --- ЯВНЫЙ КОНТРОЛЛЕР 'content' С РУЧНОЙ МАТЕМАТИКОЙ ---
         this.start = function(){
-            Lampa.Controller.add('zf_nav', {
-                toggle: function(){},
+            // Очищаем старые контроллеры перед добавлением нового
+            Lampa.Controller.clear();
+            
+            Lampa.Controller.add('content', {
+                toggle: function(){
+                    Lampa.Controller.collectionSet(scroll.render());
+                    Lampa.Controller.collectionFocus(false, scroll.render());
+                },
                 left: function(){
                     var all = grid.find('.selector');
                     var idx = all.index(grid.find('.selector.focus'));
@@ -203,7 +210,8 @@
                     if(newIdx >= 0){
                         Lampa.Controller.focus(all.eq(newIdx));
                     } else {
-                        Lampa.Controller.toggle('menu'); // Если выше некуда - уходим в меню
+                        // Если уперлись в потолок - отдаем фокус в меню
+                        Lampa.Controller.toggle('menu');
                     }
                 },
                 down: function(){
@@ -215,9 +223,13 @@
                         Lampa.Controller.focus(all.eq(newIdx));
                     }
                 },
-                back: function(){ Lampa.Activity.backward(); }
+                back: function(){ 
+                    Lampa.Activity.backward(); 
+                }
             });
-            Lampa.Controller.toggle('zf_nav');
+            
+            // Активируем наш контроллер
+            Lampa.Controller.toggle('content');
         };
         
         this.toggle = function(){
@@ -226,8 +238,14 @@
         };
 
         this.pause = function(){};
-        this.stop = function(){ Lampa.Controller.clear(); };
+        
+        this.stop = function(){
+            // Используем clear() вместо remove()!
+            Lampa.Controller.clear();
+        };
+        
         this.render = function(){ return scroll.render(); };
+        
         this.destroy = function(){ 
             Lampa.Controller.clear();
             scroll.destroy(); 
