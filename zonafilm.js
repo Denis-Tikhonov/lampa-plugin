@@ -1,15 +1,11 @@
 /**
  * ============================================================
- *  LAMPA PLUGIN — Trahkino v2.2.0 (Нативная маскировка)
+ *  LAMPA PLUGIN — Trahkino v2.2.1
  * ============================================================
  *
- *  РЕШЕНИЕ v2.2.0:
- *    ✅ Классы переименованы в стандартные Lampa (.card, .card__img).
- *       Теперь встроенный алгоритм Lampa видит карточки и сам 
- *       перемещает по ним фокус стрелками!
- *    ✅ Удален ВЕСЬ самописный код управления (own, add, enable).
- *       Мы больше не рискуем получить Script Error.
- *    ✅ Кнопка "Назад" и переключение экранов работают на 100%.
+ *  ИЗМЕНЕНИЯ v2.2.1:
+ *    ✅ Версия плагина добавлена в заголовок главного меню.
+ *    ✅ Уведомление о загрузке выведено в виде галочки.
  *
  * ============================================================
  */
@@ -19,7 +15,7 @@
 
     var CONFIG = {
         debug: true,
-        ver: '2.2.0',
+        ver: '2.2.1',
         site: 'https://trahkino.me',
         proxy: [
             'https://api.codetabs.com/v1/proxy?quest={u}',
@@ -79,7 +75,6 @@
         cats: function(){ return []; }
     };
 
-    /* CSS ПЕРЕПИСАН ПОД НАТИВНЫЕ КЛАССЫ LAMPA */
     var CSS = '\
         .cards-grid{display:flex;flex-wrap:wrap;gap:1.2em;padding:1.5em}\
         .card{width:28em;position:relative;transition:transform .2s}\
@@ -103,7 +98,8 @@
 
     function showMainMenu(){
         Lampa.Select.show({
-            title: '🎬 Trahkino',
+            // --- ВЫВОД ВЕРСИИ В ЗАГОЛОВОК МЕНЮ ---
+            title: '🎬 Trahkino v' + CONFIG.ver,
             items: [
                 { title: '🔍 Поиск', subtitle: '(Этап 3)', action: 'search' },
                 { title: '📽 Последние видео', subtitle: 'Каталог', action: 'all' },
@@ -142,7 +138,6 @@
             }
 
             items.forEach(function(m){
-                // ИСПОЛЬЗУЕМ РОДНЫЕ КЛАССЫ LAMPA!
                 var card = $([
                     '<div class="card selector">',
                       '<div class="card__img"></div>',
@@ -172,11 +167,9 @@
             }, 150);
         };
 
-        // --- МАКСИМАЛЬНО ЧИСТЫЙ КОД (Ни единой команды контроллера) ---
         this.start = function(){};
         
         this.toggle = function(){
-            // При сворачивании/разворачивании плагина просто возвращаем фокус на карточки
             Lampa.Controller.collectionSet(scroll.render());
             Lampa.Controller.collectionFocus(false, scroll.render());
         };
@@ -217,7 +210,8 @@
     function init(){
         try {
             addMenu();
-            D.noty('🎬 Trahkino v'+CONFIG.ver);
+            // --- ВЫВОД ВЕРСИИ ПРИ ЗАГРУЗКЕ ПЛАГЕНА ---
+            D.noty('✅ Trahkino v'+CONFIG.ver+' загружен');
         } catch(e){ D.err('Boot',e.message); }
     }
 
