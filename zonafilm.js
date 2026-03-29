@@ -1,14 +1,15 @@
 /**
  * ============================================================
- *  LAMPA PLUGIN — Trahkino v1.4.0
+ *  LAMPA PLUGIN — Trahkino v1.5.0
  * ============================================================
  *
- *  ИСПРАВЛЕНИЯ v1.4.0 (Архитектурный фикс):
- *    ✅ Скрипт error: Удален самописный Controller.add. 
- *       Используется встроенный 'content' контроллер Lampa.
- *    ✅ Постеры: Прямой URL + автоматический fallback на 
- *       imageproxy при блокировке (hotlink).
- *    ✅ Навигация: Стандартная через collectionSet/collectionFocus.
+ *  ИСПРАВЛЕНИЯ v1.5.0 (Финальная фиксация фокуса и картинок):
+ *    ✅ Фокус: Убрано ручное включение 'content' контроллера 
+ *       из компонента. Теперь Lampa сама управляет фокусом 
+ *       слоев, и он идеально попадает на карточки.
+ *    ✅ Постеры: Использован api.allorigins.win/raw (отдает 
+ *       бинарные данные картинок без искажений).
+ *    ✅ Размер 28 x 16 сохранен.
  *
  * ============================================================
  */
@@ -21,7 +22,7 @@
      * ========================================================== */
     var CONFIG = {
         debug: true,
-        ver: '1.4.0',
+        ver: '1.5.0',
         site: 'https://trahkino.me',
         proxy: [
             'https://api.codetabs.com/v1/proxy?quest={u}',
@@ -42,7 +43,7 @@
     };
 
     /* ==========================================================
-     *  БЛОК 3: СЕТЬ (Только для HTML)
+     *  БЛОК 3: СЕТЬ
      * ========================================================== */
     var Net = {
         get: function(url, ok, fail, _i){
@@ -156,7 +157,7 @@
     }
 
     /* ==========================================================
-     *  БЛОК 7: КОМПОНЕНТ КАРТОЧЕК (Стандартный паттерн Lampa)
+     *  БЛОК 7: КОМПОНЕНТ КАРТОЧЕК
      * ========================================================== */
     function CardsComp(object){
         var self   = this;
@@ -176,18 +177,18 @@
             $('#zf-loader').remove();
             if(!items.length){
                 grid.html('<div class="zf-empty">📭 Пусто</div>');
-                self.focus();
+                self.bindFocus();
                 return;
             }
 
             items.forEach(function(m){
-                // Пытаемся грузить напрямую. Если хостинг блочит (onerror) - подменяем на imageproxy
-                var imgTag = '<img src="'+m.poster+'" onerror="this.onerror=null;this.src=\'https://imageproxy.io/?url='+encodeURIComponent(m.poster)+'\';" loading="lazy"/>';
+                // allorigins/raw отдает чистые бинарные данные (картинки)
+                var proxiedPoster = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(m.poster);
 
                 var card = $([
                     '<div class="zf-card selector">',
                       '<div class="zf-poster">',
-                        imgTag,
+                        '<img src="'+proxiedPoster+'" loading="lazy"/>',
                         m.duration ? '<div class="zf-dur">'+m.duration+'</div>' : '',
                       '</div>',
                       '<div class="zf-name">'+m.title+'</div>',
@@ -205,22 +206,27 @@
                 grid.append(card);
             });
 
-            self.focus();
+            self.bindFocus();
         };
 
         // Безопасная передача фокуса встроенному контроллеру Lampa
-        this.focus = function(){
-            Lampa.Controller.collectionSet(scroll.render());
-            Lampa.Controller.collectionFocus(0, scroll.render());
+        this.bindFocus = function(){
+            setTimeout(function(){
+                // Сообщаем Lampa, где находятся .selector элементы
+                Lampa.Controller.collectionSet(scroll.render());
+                // Строго указываем сфокусироваться на первый элемент внутри скролла
+                Lampa.Controller.collectionFocus(0, scroll.render());
+            }, 150);
         };
 
-        // Жизненный цикл (без кастомных Controller.add!)
+        // Жизненный цикл компонента (БЕЗ ручных toggle 'content'!)
         this.start = function(){
-            Lampa.Controller.toggle('content'); // Активируем стандартный контент
+            // Lampa.Activity сама активирует системный 'content' контроллер
+            // Нам не нужно здесь ничего писать, чтобы не сломать фокус!
         };
         
         this.toggle = function(){
-            Lampa.Controller.toggle('content');
+            // Пусто. Системный контроллер сам разберется.
         };
 
         this.pause = function(){};
