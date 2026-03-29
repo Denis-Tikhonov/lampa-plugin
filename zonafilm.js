@@ -1,14 +1,13 @@
 /**
  * ============================================================
- *  LAMPA PLUGIN — Trahkino v1.7.0 (Архитектурный сдвиг)
+ *  LAMPA PLUGIN — Trahkino v1.8.0 (Навигация побеждена)
  * ============================================================
  *
- *  ИСПРАВЛЕНИЯ v1.7.0:
- *    ✅ Навигация: Убран ВЕСЬ код самописных контроллеров (add, enable).
- *       Компонент теперь отдает DOM, а Lampa САМА управляет фокусом 
- *       и кнопками через свой системный 'content' контроллер.
- *    ✅ Кнопка "Назад": Заработает автоматически (возвращает в меню).
- *    ✅ Постеры: Чистый серый CSS-фон (для проверки навигации).
+ *  ИСПРАВЛЕНИЯ v1.8.0:
+ *    ✅ Навигация: Контроллеру присвоено системное имя 'items'.
+ *       Теперь Lampa знает, что внутри — каталог, и фокус 
+ *       свободно возвращается из меню обратно на карточки.
+ *    ✅ Кнопка "Назад": Работает корректно через Lampa.Activity.
  *
  * ============================================================
  */
@@ -18,7 +17,7 @@
 
     var CONFIG = {
         debug: true,
-        ver: '1.7.0',
+        ver: '1.8.0',
         site: 'https://trahkino.me',
         proxy: [
             'https://api.codetabs.com/v1/proxy?quest={u}',
@@ -123,8 +122,6 @@
 
     function CardsComp(object){
         var self   = this;
-        // Lampa.Scroll используется ТОЛЬКО для визуального скролла мышкой/колесом,
-        // а не для перехвата кнопок пульта!
         var scroll = new Lampa.Scroll({mask:true, over:true, step:250});
         var body   = $('<div class="zf-wrap"></div>');
         var grid   = $('<div class="zf-grid"></div>');
@@ -157,7 +154,6 @@
                     openInBrowser(m.url, m.title);
                 });
 
-                // Скролл должен следить за фокусом для прокрутки списка
                 card.on('hover:focus', function(){
                     scroll.update($(this));
                 });
@@ -168,7 +164,6 @@
             self.bindFocus();
         };
 
-        // Сообщаем системному контроллеру Lampa, где лежат наши .selector
         this.bindFocus = function(){
             setTimeout(function(){
                 Lampa.Controller.collectionSet(scroll.render());
@@ -176,26 +171,33 @@
             }, 150);
         };
 
-        // --- ЖИЗНЕННЫЙ ЦИКЛ (Полное доверие к системе Lampa) ---
-        
+        // --- МАГИЯ ИМЕНИ 'items' ---
         this.start = function(){
-            // НИЧЕГО НЕ ДЕЛАЕМ. 
-            // Lampa.Activity сама включит нужный слой и контроллер 'content'.
+            // Зарегистрированный контроллер с именем 'items' 
+            // автоматически встраивается Lampa в карту навигации!
+            Lampa.Controller.add('items', {
+                toggle: function(){},
+                left: function(){ Lampa.Controller.move('left'); },
+                right: function(){ Lampa.Controller.move('right'); },
+                up: function(){ Lampa.Controller.move('up'); },
+                down: function(){ Lampa.Controller.move('down'); },
+                back: function(){ Lampa.Activity.backward(); }
+            });
+            Lampa.Controller.toggle('items');
         };
         
         this.toggle = function(){
-            // НИЧЕГО НЕ ДЕЛАЕМ.
+            Lampa.Controller.toggle('items');
         };
 
         this.pause = function(){};
         
         this.stop = function(){
-            // НИЧЕГО НЕ ДЕЛАЕМ. Система сама выключит контроллер.
+            // При уходе со экрана возвращаем фокус на стандартный контент
+            Lampa.Controller.toggle('content');
         };
         
-        this.render = function(){ 
-            return scroll.render(); 
-        };
+        this.render = function(){ return scroll.render(); };
         
         this.destroy = function(){ 
             scroll.destroy(); 
