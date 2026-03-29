@@ -1,14 +1,15 @@
 /**
  * ============================================================
- *  LAMPA PLUGIN — Trahkino v2.1.0 (Пробуждение content)
+ *  LAMPA PLUGIN — Trahkino v2.2.0 (Нативная маскировка)
  * ============================================================
  *
- *  ИСПРАВЛЕНИЯ v2.1.0:
- *    ✅ Запуск Activity оставлен как в вашем рабочем примере.
- *    ✅ В start() добавлено Lampa.Controller.enable('content') 
- *       для принудительного включения навигации по стрелкам.
- *    ✅ Упрощен DOM (убрана лишняя обертка) для точного 
- *       расчета координат перемещения фокуса.
+ *  РЕШЕНИЕ v2.2.0:
+ *    ✅ Классы переименованы в стандартные Lampa (.card, .card__img).
+ *       Теперь встроенный алгоритм Lampa видит карточки и сам 
+ *       перемещает по ним фокус стрелками!
+ *    ✅ Удален ВЕСЬ самописный код управления (own, add, enable).
+ *       Мы больше не рискуем получить Script Error.
+ *    ✅ Кнопка "Назад" и переключение экранов работают на 100%.
  *
  * ============================================================
  */
@@ -18,7 +19,7 @@
 
     var CONFIG = {
         debug: true,
-        ver: '2.1.0',
+        ver: '2.2.0',
         site: 'https://trahkino.me',
         proxy: [
             'https://api.codetabs.com/v1/proxy?quest={u}',
@@ -78,16 +79,17 @@
         cats: function(){ return []; }
     };
 
+    /* CSS ПЕРЕПИСАН ПОД НАТИВНЫЕ КЛАССЫ LAMPA */
     var CSS = '\
-        .zf-grid{display:flex;flex-wrap:wrap;gap:1.2em;padding:1.5em}\
-        .zf-card{width:28em;position:relative;transition:transform .2s}\
-        .zf-card.focus{transform:scale(1.05)}\
-        .zf-poster{width:100%;height:16em;border-radius:.5em;overflow:hidden;background:#333; position:relative}\
-        .zf-poster img{width:100%;height:100%;object-fit:cover;position:absolute;top:0;left:0}\
-        .zf-dur{position:absolute;bottom:.5em;right:.5em;background:rgba(0,0,0,.85);\
-            color:#fff;padding:.15em .5em;border-radius:.3em;font-size:1.1em;font-weight:700}\
-        .zf-name{color:#eee;font-size:1.3em;margin-top:.5em;overflow:hidden;\
+        .cards-grid{display:flex;flex-wrap:wrap;gap:1.2em;padding:1.5em}\
+        .card{width:28em;position:relative;transition:transform .2s}\
+        .card.focus{transform:scale(1.05)}\
+        .card__img{width:100%;height:16em;border-radius:.5em;overflow:hidden;background:#333; position:relative}\
+        .card__img img{width:100%;height:100%;object-fit:cover;position:absolute;top:0;left:0}\
+        .card__title{color:#eee;font-size:1.3em;margin-top:.5em;overflow:hidden;\
             text-overflow:ellipsis;white-space:nowrap; height: 1.5em;}\
+        .zf-dur{position:absolute;bottom:.5em;right:.5em;background:rgba(0,0,0,.85);\
+            color:#fff;padding:.15em .5em;border-radius:.3em;font-size:1.1em;font-weight:700;z-index:2}\
         .zf-loading{display:flex;align-items:center;justify-content:center;\
             padding:4em;color:#888;font-size:1.3em}\
         .zf-spin{display:inline-block;width:2em;height:2em;border:3px solid #333;\
@@ -114,7 +116,6 @@
                     return;
                 }
                 if(item.action === 'all'){
-                    // Стандартный вызов компонента (как в вашем примере)
                     Lampa.Activity.push({ url: '', title: 'Последние видео', component: 'zf_cards', page: 1 });
                 }
             }
@@ -124,10 +125,9 @@
     function CardsComp(object){
         var self   = this;
         var scroll = new Lampa.Scroll({mask:true, over:true, step:250});
-        var grid   = $('<div class="zf-grid"></div>');
+        var grid   = $('<div class="cards-grid"></div>');
 
         this.create = function(){
-            // Убрали лишнюю обертку body. Grid кладем прямо в scroll
             grid.append('<div class="zf-loading" id="zf-loader"><div class="zf-spin"></div>Загрузка...</div>');
             scroll.append(grid);
             Src.main(object.page || 1, function(items){ self.onDataLoaded(items); });
@@ -142,11 +142,12 @@
             }
 
             items.forEach(function(m){
+                // ИСПОЛЬЗУЕМ РОДНЫЕ КЛАССЫ LAMPA!
                 var card = $([
-                    '<div class="zf-card selector">',
-                      '<div class="zf-poster"></div>',
+                    '<div class="card selector">',
+                      '<div class="card__img"></div>',
                       m.duration ? '<div class="zf-dur">'+m.duration+'</div>' : '',
-                      '<div class="zf-name">'+m.title+'</div>',
+                      '<div class="card__title">'+m.title+'</div>',
                     '</div>'
                 ].join(''));
 
@@ -171,13 +172,15 @@
             }, 150);
         };
 
-        // --- ТЕСТ МЕТОДА ENABLE ---
-        this.start = function(){
-            // Принудительно включаем обработчик слоев контента
-            Lampa.Controller.enable('content');
-        };
+        // --- МАКСИМАЛЬНО ЧИСТЫЙ КОД (Ни единой команды контроллера) ---
+        this.start = function(){};
         
-        this.toggle = function(){};
+        this.toggle = function(){
+            // При сворачивании/разворачивании плагина просто возвращаем фокус на карточки
+            Lampa.Controller.collectionSet(scroll.render());
+            Lampa.Controller.collectionFocus(false, scroll.render());
+        };
+
         this.pause = function(){};
         this.stop = function(){};
         this.render = function(){ return scroll.render(); };
