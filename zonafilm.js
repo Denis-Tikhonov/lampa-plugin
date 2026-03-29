@@ -1,187 +1,258 @@
 /**
- * TrahKino v0.1-diag — Изучение структуры сайта
+ * ============================================================
+ *  LAMPA PLUGIN — Trahkino v1.6.0
+ * ============================================================
+ *
+ *  ИСПРАВЛЕНИЯ v1.6.0:
+ *    ✅ Навигация: Создан выделенный контроллер 'zf_scroll' 
+ *       с методами move(), который не конфликтует с ядром Lampa.
+ *    ✅ Очистка: Правильное удаление 'zf_scroll' при выходе (stop/destroy).
+ *    ✅ Дебаг постеров: Добавлен плейсхолдер (onerror), чтобы видеть, 
+ *       грузится ли картинка или блокируется хостингом.
+ *
+ * ============================================================
  */
-(function(){
+
+(function () {
     'use strict';
 
-    var WORKER = 'https://zonaproxy.777b737.workers.dev';
-    var SITE = 'https://trahkino.me';
+    var CONFIG = {
+        debug: true,
+        ver: '1.6.0',
+        site: 'https://trahkino.me',
+        proxy: [
+            'https://api.codetabs.com/v1/proxy?quest={u}',
+            'https://corsproxy.io/?{u}',
+            'https://api.allorigins.win/raw?url={u}'
+        ],
+        pi: 0,
+        timeout: 15000
+    };
 
-    var ICO = '<svg viewBox="0 0 24 24" fill="currentColor">' +
-        '<path d="M18 3v2h-2V3H8v2H6V3H4v18h2v-2h2v2h8v-2h2v2h2V3h-2z' +
-        'M8 17H6v-2h2v2zm0-4H6v-2h2v2zm0-4H6V7h2v2z' +
-        'm10 8h-2v-2h2v2zm0-4h-2v-2h2v2zm0-4h-2V7h2v2z"/></svg>';
+    var D = {
+        log: function(t,m){ if(CONFIG.debug) console.log('[TRK]['+t+']',m); },
+        err: function(t,m){ console.error('[TRK][ERR]['+t+']',m); },
+        noty: function(m){ try{ Lampa.Noty.show(m); }catch(e){} }
+    };
 
-    function get(url, cb){
-        var full = WORKER + '/?url=' + encodeURIComponent(url);
+    var Net = {
+        get: function(url, ok, fail, _i){
+            var i = typeof _i === 'number' ? _i : CONFIG.pi;
+            if(i >= CONFIG.proxy.length){ if(fail) fail(); return; }
+            var pu = CONFIG.proxy[i].replace('{u}', encodeURIComponent(url));
+            $.ajax({ url: pu, timeout: CONFIG.timeout, success: function(data){
+                CONFIG.pi = i; if(ok) ok(data);
+            }, error: function(){ Net.get(url, ok, fail, i+1); }});
+        }
+    };
 
-        $.ajax({
-            url: full,
-            timeout: 20000,
-            success: function(data){
-                cb(null, data);
-            },
-            error: function(xhr, status, err){
-                cb(status + ' ' + err + ' HTTP=' + xhr.status, null);
+    var Src = {
+        main: function(page, cb){
+            D.noty('⏳ Загрузка каталога...');
+            var url = CONFIG.site + (page > 1 ? '/page/'+page+'/' : '/');
+            Net.get(url, function(html){
+                if(typeof html !== 'string'){ cb([]); return; }
+                try {
+                    var doc = new DOMParser().parseFromString(html, 'text/html');
+                    var cards = doc.querySelectorAll('a[href*="/video/"]');
+                    var items = [];
+                    cards.forEach(function(a){
+                        var href = a.getAttribute('href') || '';
+                        if(!href) return;
+                        if(href.indexOf('http') === -1) href = CONFIG.site + href;
+                        var img = a.querySelector('img');
+                        var poster = img ? (img.getAttribute('src') || '') : '';
+                        var titleEl = a.querySelector('.title, strong');
+                        var title = titleEl ? titleEl.textContent.trim() : 'Без названия';
+                        var durEl = a.querySelector('.duration');
+                        var duration = durEl ? durEl.textContent.trim() : '';
+                        if(title && poster) items.push({ title: title, url: href, poster: poster, duration: duration });
+                    });
+                    if(items.length > 0) D.noty('✅ Загружено: '+items.length);
+                    else D.noty('⚠ Пусто');
+                    cb(items);
+                } catch(e){ cb([]); }
+            }, function(){ D.noty('⚠ Ошибка сети'); cb([]); });
+        },
+        search: function(q, cb){ D.noty('Поиск на этапе 3'); cb([]); },
+        cats: function(){ return []; }
+    };
+
+    var CSS = '\
+        .zf-wrap{padding:1.5em}\
+        .zf-grid{display:flex;flex-wrap:wrap;gap:1.2em}\
+        .zf-card{width:28em;position:relative;transition:transform .2s}\
+        .zf-card.focus{transform:scale(1.05)}\
+        .zf-poster{width:100%;height:16em;border-radius:.5em;overflow:hidden;background:#333; position:relative;display:flex;align-items:center;justify-content:center;color:#555;font-size:1.5em}\
+        .zf-poster img{width:100%;height:100%;object-fit:cover;position:absolute;top:0;left:0}\
+        .zf-dur{position:absolute;bottom:.5em;right:.5em;background:rgba(0,0,0,.85);\
+            color:#fff;padding:.15em .5em;border-radius:.3em;font-size:1.1em;font-weight:700}\
+        .zf-name{color:#eee;font-size:1.3em;margin-top:.5em;overflow:hidden;\
+            text-overflow:ellipsis;white-space:nowrap; height: 1.5em;}\
+        .zf-loading{display:flex;align-items:center;justify-content:center;\
+            padding:4em;color:#888;font-size:1.3em}\
+        .zf-spin{display:inline-block;width:2em;height:2em;border:3px solid #333;\
+            border-top-color:#4FC3F7;border-radius:50%;margin-right:.8em;\
+            animation:zfspin .7s linear infinite}\
+        @keyframes zfspin{to{transform:rotate(360deg)}}\
+        .zf-empty{text-align:center;padding:4em;color:#666;font-size:1.3em;width:100%}\
+    ';
+    $('#zf-css').remove();
+    $('<style>').attr('id','zf-css').text(CSS).appendTo('head');
+
+    function showMainMenu(){
+        Lampa.Select.show({
+            title: '🎬 Trahkino',
+            items: [
+                { title: '🔍 Поиск', subtitle: '(Этап 3)', action: 'search' },
+                { title: '📽 Последние видео', subtitle: 'Каталог', action: 'all' },
+                { title: '← Назад', subtitle: '', action: 'back' }
+            ],
+            onBack: function(){ Lampa.Controller.toggle('content'); },
+            onSelect: function(item){
+                if(item.action === 'back' || item.action === 'search'){
+                    if(item.action === 'back') Lampa.Controller.toggle('content');
+                    return;
+                }
+                if(item.action === 'all'){
+                    Lampa.Activity.push({ url: '', title: 'Последние видео', component: 'zf_cards', page: 1 });
+                }
             }
         });
     }
 
-    function runDiag(){
-        var steps = [];
+    function CardsComp(object){
+        var self   = this;
+        var scroll = new Lampa.Scroll({mask:true, over:true, step:250});
+        var body   = $('<div class="zf-wrap"></div>');
+        var grid   = $('<div class="zf-grid"></div>');
 
-        function add(t, s){
-            steps.push({ title: t, subtitle: s || '' });
-        }
+        this.create = function(){
+            body.append('<div class="zf-loading" id="zf-loader"><div class="zf-spin"></div>Загрузка...</div>');
+            body.append(grid);
+            scroll.append(body);
+            Src.main(object.page || 1, function(items){ self.onDataLoaded(items); });
+        };
 
-        function show(){
-            steps.push({ title: '━━━━━━━━━━━', subtitle: '' });
-            steps.push({ title: '← Назад', subtitle: '', action: 'back' });
-
-            Lampa.Select.show({
-                title: '🔧 Диагностика сайта',
-                items: steps,
-                onBack: function(){ Lampa.Controller.toggle('content'); },
-                onSelect: function(item){
-                    if(item.action === 'back') Lampa.Controller.toggle('content');
-                }
-            });
-        }
-
-        Lampa.Noty.show('⏳ Проверяю сайт...');
-
-        add('1️⃣ Сайт: ' + SITE);
-        add('2️⃣ Worker: ' + WORKER);
-        add('3️⃣ Загрузка главной...');
-
-        get(SITE, function(err, data){
-            if(err){
-                add('❌ Главная: ' + err);
-                show();
+        this.onDataLoaded = function(items){
+            $('#zf-loader').remove();
+            if(!items.length){
+                grid.html('<div class="zf-empty">📭 Пусто</div>');
+                self.bindFocus();
                 return;
             }
 
-            var html = typeof data === 'string' ? data : JSON.stringify(data);
-            add('✅ Главная: ' + html.length + ' символов');
+            items.forEach(function(m){
+                // Если прокси не отдаст картинку, появится надпись "IMG"
+                var imgTag = '<img src="https://api.allorigins.win/raw?url=' + encodeURIComponent(m.poster) + '" onerror="this.style.display=\'none\'" loading="lazy"/>';
 
-            /* Определяем тип сайта */
-            if(html.indexOf('__NEXT_DATA__') !== -1){
-                add('📋 Тип: Next.js');
-                var m = html.match(/"buildId"\s*:\s*"([^"]+)"/);
-                if(m) add('BuildId: ' + m[1]);
-            }
+                var card = $([
+                    '<div class="zf-card selector">',
+                      '<div class="zf-poster">',
+                        imgTag,
+                        '<span>IMG</span>', // Эта надпись исчезнет, если картинка загрузится (из-за position absolute у img)
+                        m.duration ? '<div class="zf-dur">'+m.duration+'</div>' : '',
+                      '</div>',
+                      '<div class="zf-name">'+m.title+'</div>',
+                    '</div>'
+                ].join(''));
 
-            /* Ищем ссылки на видео/категории */
-            var links = [];
-            var linkRe = /<a[^>]+href="([^"]*)"[^>]*>/gi;
-            var match;
-            var seen = {};
-            while((match = linkRe.exec(html)) !== null){
-                var href = match[1];
-                if(href && href.length > 1 && href.length < 100 && !seen[href]){
-                    seen[href] = true;
-                    links.push(href);
-                }
-            }
-            add('🔗 Ссылок: ' + links.length);
+                card.on('hover:enter', function(){
+                    openInBrowser(m.url, m.title);
+                });
 
-            /* Показываем первые 15 уникальных путей */
-            var paths = {};
-            links.forEach(function(l){
-                var p = l.replace(/https?:\/\/[^\/]+/, '');
-                var parts = p.split('/').filter(function(x){ return x; });
-                if(parts.length > 0) paths['/' + parts[0]] = true;
+                card.on('hover:focus', function(){
+                    scroll.update($(this));
+                });
+
+                grid.append(card);
             });
 
-            add('📁 Разделы:');
-            Object.keys(paths).slice(0, 15).forEach(function(p){
-                add('   ' + p);
+            self.bindFocus();
+        };
+
+        this.bindFocus = function(){
+            setTimeout(function(){
+                Lampa.Controller.collectionSet(scroll.render());
+                Lampa.Controller.collectionFocus(0, scroll.render());
+            }, 100);
+        };
+
+        // --- ПРАВИЛЬНАЯ РАБОТА С ПУЛЬТОМ ---
+        this.start = function(){
+            // 1. Удаляем контроллер, если он случайно остался (защита от дублей)
+            Lampa.Controller.remove('zf_scroll');
+            
+            // 2. Создаем свой контроллер с уникальным именем
+            Lampa.Controller.add('zf_scroll', {
+                toggle: function(){},
+                left: function(){ Lampa.Controller.move('left'); },
+                right: function(){ Lampa.Controller.move('right'); },
+                up: function(){ Lampa.Controller.move('up'); },
+                down: function(){ Lampa.Controller.move('down'); },
+                back: function(){ Lampa.Activity.backward(); }
             });
+            
+            // 3. Включаем именно его
+            Lampa.Controller.toggle('zf_scroll');
+        };
+        
+        this.toggle = function(){
+            Lampa.Controller.toggle('zf_scroll');
+        };
 
-            /* Ищем категории */
-            var cats = [];
-            var catRe = /<a[^>]+href="([^"]*(?:categor|genre|tag|razd)[^"]*)"[^>]*>([^<]*)</gi;
-            while((match = catRe.exec(html)) !== null){
-                cats.push(match[1] + ' → ' + match[2].trim());
-            }
-            if(cats.length > 0){
-                add('📂 Категории:');
-                cats.slice(0, 10).forEach(function(c){ add('   ' + c); });
-            }
-
-            /* Ищем видео-элементы */
-            var videos = [];
-            var vidRe = /<a[^>]+href="([^"]*)"[^>]*class="[^"]*"[^>]*>[\s\S]*?<img[^>]+src="([^"]*)"[\s\S]*?<\/a>/gi;
-            while((match = vidRe.exec(html)) !== null){
-                videos.push({ href: match[1], img: match[2] });
-            }
-            add('🎬 Видео-блоков: ' + videos.length);
-            videos.slice(0, 3).forEach(function(v){
-                add('   ' + v.href.substring(0, 60));
-            });
-
-            /* Ищем заголовки */
-            var titles = [];
-            var titleRe = /<(?:h[1-3]|title)[^>]*>([^<]+)<\//gi;
-            while((match = titleRe.exec(html)) !== null){
-                var t = match[1].trim();
-                if(t.length > 2 && t.length < 100) titles.push(t);
-            }
-            if(titles.length > 0){
-                add('📝 Заголовки:');
-                titles.slice(0, 8).forEach(function(t){ add('   ' + t); });
-            }
-
-            /* HTML начало для анализа */
-            add('━━━ HTML начало: ━━━');
-            add(html.substring(0, 200));
-
-            /* Загружаем вторую страницу для анализа пагинации */
-            add('');
-            add('4️⃣ Проверяю пагинацию...');
-
-            /* Ищем паттерн пагинации */
-            var pageLinks = html.match(/href="[^"]*(?:page|p)=?\d+[^"]*"/gi) || [];
-            if(pageLinks.length > 0){
-                add('📄 Пагинация:');
-                pageLinks.slice(0, 5).forEach(function(p){ add('   ' + p); });
-            } else {
-                var numLinks = html.match(/href="[^"]*\/\d+\/?"/gi) || [];
-                if(numLinks.length > 0){
-                    add('📄 Числовые ссылки:');
-                    numLinks.slice(0, 5).forEach(function(p){ add('   ' + p); });
-                } else {
-                    add('📄 Пагинация не найдена');
-                }
-            }
-
-            show();
-        });
+        this.pause = function(){};
+        
+        this.stop = function(){
+            // 4. ОБЯЗАТЕЛЬНО убираем за собой контроллер при сворачивании
+            Lampa.Controller.remove('zf_scroll');
+        };
+        
+        this.render = function(){ return scroll.render(); };
+        
+        this.destroy = function(){ 
+            // 5. И при полном уничтожении компонента
+            Lampa.Controller.remove('zf_scroll');
+            scroll.destroy(); 
+            body.remove(); 
+        };
     }
 
+    function openInBrowser(url, title){
+        D.noty('▶ Открываю: ' + title);
+        try {
+            if(typeof Lampa.Android !== 'undefined' && Lampa.Android.openUrl){
+                Lampa.Android.openUrl(url);
+                return;
+            }
+        } catch(e){}
+        try { window.open(url,'_blank'); } catch(e){}
+    }
+
+    Lampa.Component.add('zf_cards', CardsComp);
+
+    var ICO = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M18 4l2 4h-3l-2-4h-2l2 4h-3l-2-4H8l2 4H7L5 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V4h-4z"/></svg>';
+
     function addMenu(){
-        if($('[data-action="tkdiag"]').length) return;
-        var li = $('<li class="menu__item selector" data-action="tkdiag">'+
+        if($('[data-action="trahkino"]').length) return;
+        var li = $('<li class="menu__item selector" data-action="trahkino">'+
             '<div class="menu__ico">'+ICO+'</div>'+
-            '<div class="menu__text">TK Диагностика</div></li>');
-        li.on('hover:enter', function(){
-            runDiag();
-        });
+            '<div class="menu__text">Trahkino</div></li>');
+        li.on('hover:enter', function(){ showMainMenu(); });
         var list = $('.menu .menu__list');
-        if(list.length) list.eq(0).append(li);
-        else {
-            var ul = $('.menu ul');
-            if(ul.length) ul.eq(0).append(li);
-        }
+        if(list.length){ list.eq(0).append(li); return; }
+        var ul = $('.menu ul');
+        if(ul.length) ul.eq(0).append(li);
     }
 
     function init(){
-        addMenu();
-        Lampa.Noty.show('🔧 TK Диагностика');
+        try {
+            addMenu();
+            D.noty('🎬 Trahkino v'+CONFIG.ver);
+        } catch(e){ D.err('Boot',e.message); }
     }
 
     if(window.appready) init();
-    else Lampa.Listener.follow('app', function(e){
-        if(e.type === 'ready') init();
-    });
+    else Lampa.Listener.follow('app', function(e){ if(e.type === 'ready') init(); });
+
 })();
