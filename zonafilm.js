@@ -1,4 +1,4 @@
-сделай необходимую разметку кода для последующего добавления, исправления источников. "use strict";
+"use strict";
 function _toConsumableArray(e) {
   return (
     _arrayWithoutHoles(e) ||
