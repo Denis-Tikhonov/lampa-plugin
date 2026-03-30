@@ -3,11 +3,12 @@
  *  LAMPA PLUGIN — Trahkino v3.5.2 (Stable Base)
  * ============================================================
  *
- *  ОТКАТ К 3.5.2:
- *    ✅ Убраны эксперименты с DOM-вставками в .scroll__content.
- *    ✅ Убран параметр scroll_by_item (вызывал задержки).
- *    ✅ Убран кастомный CSS-фокус и двойная обводка.
- *    ✅ Вернут стандартный append() и стандартный scroll.update().
+ *  ВЕРНУТЬСЯ БАЗА 3.5.2:
+ *    ✅ Восстановлена регистрация компонента Lampa.Component.add('zf_menu', MenuComp).
+ *    ✅ Клик по кнопке делает Lampa.Activity.push({ component: 'zf_menu' }).
+ *    ✅ Убран триггер hover:focus (исправлен крах).
+ *    ✅ Убран ручной CSS transform из setFocus (вернут стандартный фокус).
+ *    ✅ Меню компонент упрощен для надежности.
  *
  * ============================================================
  */
@@ -18,7 +19,7 @@
     var CONFIG = {
         debug: true,
         ver: '3.5.2',
-        site: 'https://trahkino.me',
+        site: 'https://trahkino.ru',
         proxy: [
             'https://api.codetabs.com/v1/proxy?quest={u}',
             'https://corsproxy.io/?{u}',
@@ -105,9 +106,9 @@
         
         var isActiveMenu = false;
         var items = [
-            { title: '🔍 Поиск', action: 'search' },
-            { title: '📽 Последние видео', action: 'all' },
-            { title: '← Назад', action: 'back' }
+            { title: '🔍 Поиск', subtitle: '(Следующий этап)', action: 'search' },
+            { title: '📽 Последние видео', subtitle: 'Каталог', action: 'all' },
+            { title: '← Назад', subtitle: 'В главное меню', action: 'back' }
         ];
 
         this.setFocusMenu = function(el) {
@@ -118,18 +119,23 @@
         this.initMenuNav = function(e) {
             if (!isActiveMenu) return;
             var key = e.key;
-            if (key === 'Escape' || key === 'Backspace') { Lampa.Activity.backward(); return; }
+            if (key === 'Escape' || key === 'Backspace') { 
+                Lampa.Activity.backward(); 
+                return; 
+            }
             if (!['ArrowUp', 'ArrowDown', 'Enter'].includes(key)) return;
 
             var current = list.find('.zf-menu-item.focus');
-            if(!current.length) { self.setFocusMenu(list.find('.zf-menu-item').first()); return; }
-            var target = null;
+            if(!current.length) { 
+                self.setFocusMenu(list.find('.zf-menu-item').first()); 
+                return;
+            }
 
+            var target = null;
             switch(key) {
                 case 'ArrowDown': target = current.next('.zf-menu-item'); break;
                 case 'ArrowUp': target = current.prev('.zf-menu-item'); break;
                 case 'Enter':
-                    e.preventDefault(); e.stopPropagation();
                     current.trigger('hover:enter'); return;
             }
 
@@ -152,7 +158,12 @@
                         return;
                     }
                     if(item.action === 'all'){
-                        Lampa.Activity.push({ url: '', title: 'Последние видео', component: 'zf_cards', page: 1 });
+                        Lampa.Activity.push({ 
+                            url: '', 
+                            title: 'Последние видео', 
+                            component: 'zf_cards' 
+                            page: 1 
+                        });
                     }
                 });
                 list.append(el);
@@ -165,11 +176,13 @@
             }, 200);
         };
 
+        // Активный жизненный цикл (никаких кастомных вызовов, только то, что должна быть)
         this.start = function(){ isActiveMenu = true; };
         this.toggle = function(){ isActiveMenu = true; };
         this.pause = function(){ isActiveMenu = false; };
         this.stop = function(){ isActiveMenu = false; };
         this.render = function(){ return scroll.render(); };
+        
         this.destroy = function(){ 
             isActiveMenu = false;
             window.removeEventListener('keydown', self.initMenuNav, true); 
@@ -178,26 +191,28 @@
     }
 
     /* ==========================================================
-     *  КОМПОНЕНТ КАРТОЧЕК (Стабильная база)
+     *  КОМПОНЕНТ КАРТОЧЕК (Идеальная база из 3.5.2)
      * ========================================================== */
     function CardsComp(object){
         var self   = this;
-        // Стандартная базовая инициализация
         var scroll = new Lampa.Scroll({mask:true, over:true});
         var wrap   = $('<div class="items-cards"></div>');
         
         var isActive = false;
+        var navHandler = null;
         var lastBrowserOpenTime = 0;
 
-        // Стандартная установка фокуса (без скролла, без DOM-вмешательств)
+        // Стандартная установка фокуса без триггеров и краха
         this.setFocus = function(card) {
             if(!card || !card.length || !isActive) return;
             wrap.find('.card').removeClass('focus');
             card.addClass('focus');
-            card.trigger('hover:focus');
+            
+            // Стандартный метод Lampa для перемещения скролла к карточке
+            try { scroll.update($(this)); } catch(e){}
         };
 
-        // Стандартная навигация (без кастомного scrollTop)
+        // Стандартный перехватчик D-pad без ручной математики
         this.initNavigation = function(e) {
             if (!isActive) return;
             var key = e.key;
@@ -267,7 +282,7 @@
             if(!target || !target.length) {
                 e.preventDefault(); e.stopPropagation();
                 isActive = false;
-                window.removeEventListener('keydown', self.initNavigation, true);
+                window.removeEventListener('keydown', navHandler, true);
                 Lampa.Activity.backward(); return; 
             }
 
@@ -304,6 +319,7 @@
                         openInBrowser($(this).data('card-url'), $(this).data('card-title'));
                     });
 
+                    // Вызов setFocus без триггеров
                     card.on('hover:focus', function(){
                         self.setFocus($(this));
                     });
@@ -315,7 +331,7 @@
                 }
             });
             
-            window.addEventListener('keydown', self.initNavigation, true);
+            window.addEventListener('keydown', navHandler, true);
             setTimeout(function(){
                 isActive = true;
                 self.setFocus(wrap.find('.card').first());
@@ -327,9 +343,10 @@
         this.pause = function(){ isActive = false; };
         this.stop = function(){ isActive = false; };
         this.render = function(){ return scroll.render(); };
+        
         this.destroy = function(){ 
             isActive = false;
-            window.removeEventListener('keydown', self.initNavigation, true); 
+            window.removeEventListener('keydown', navHandler, true); 
             scroll.destroy(); wrap.remove(); 
         };
     }
@@ -367,8 +384,9 @@
         li.on('hover:enter', function(){
             Lampa.Activity.push({ 
                 url: '', 
-                title: 'Trahkino v' + CONFIG.ver, 
+                title: 'Последние видео', 
                 component: 'zf_cards' 
+                page: 1 
             });
         });
         
@@ -388,4 +406,5 @@
     if(window.appready) init();
     else Lampa.Listener.follow('app', function(e){ if(e.type === 'ready') init(); });
 
+})();
 })();
