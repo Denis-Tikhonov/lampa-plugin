@@ -1897,45 +1897,43 @@ function _toPrimitive(e, t) {
           },
           {
             key: "Playlist",
-            value: function (t) {
-              if (!t) return [];
-              for (
-                var a = t.split('class="thumb-block"'),
-                  n = [],
-                  r = 1;
-                r < a.length;
-                r++
-              ) {
-                var i = a[r],
-                  o = /<a href="\/([^\"]+)" title="([^"]+)"/.exec(i);
-                if (o && o[1] && o[2]) {
-                  var s = c.extract(
-                      i,
-                      /<span class="video-badge h">([^<]+)<\/span>/,
-                    ),
-                    l = c.extract(
-                      i,
-                      /<span class="video-badge l">([^<]+)<\/span>/,
-                    ),
-                    p = c.extract(i, /data-src="([^"]+)"/);
-                  p = p ? p.replace(/\/w:[0-9]00\//, "/w:300/") : "";
-                  var d = c.extract(i, /data-preview="([^"]+)"/);
-                  n.push(
-                    new u(
-                      o[2],
-                      "".concat(e.host, "/").concat(o[1]),
-                      p,
-                      d || null,
-                      l || null,
-                      s || null,
-                      !0,
-                      !0,
-                      null,
-                    ),
-                  );
-                }
-              }
-              return n;
+value: function (html) {
+  if (!html) return [];
+
+  var list = [];
+  var blocks = html.split('class="thumb-block"');
+
+  for (var i = 1; i < blocks.length; i++) {
+    var block = blocks[i];
+
+    var url = c.extract(block, /href="\/(video[^"]+)"/);
+    var title = c.extract(block, /title="([^"]+)"/);
+
+    var img =
+      c.extract(block, /data-src="([^"]+)"/) ||
+      c.extract(block, /src="([^"]+)"/);
+
+    var duration = c.extract(block, /class="duration">([^<]+)</);
+
+    if (url && title) {
+      list.push(
+        new u(
+          title,
+          e.host + "/" + url,
+          img || "",
+          null,
+          duration || null,
+          null,
+          true,
+          true,
+          null
+        )
+      );
+    }
+  }
+
+  return list;
+}
             },
           },
           {
