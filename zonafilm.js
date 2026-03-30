@@ -1,13 +1,13 @@
 /**
  * ============================================================
- *  LAMPA PLUGIN — Trahkino v3.2.1 (Тест нативного класса)
+ *  LAMPA PLUGIN — Trahkino v3.3.0 (Прямой перехват D-pad)
  * ============================================================
  *
- *  ИЗМЕНЕНИЯ v3.2.1:
- *    ✅ Обертка карточек переименована из .zf-wrap в .items-cards.
- *    ✅ Это стандартный класс Lampa, который ожидает встроенный 
- *       алгоритм D-pad навигации для включения стрелок.
- *    ✅ База кода — стабильная версия 3.0.0 (0 ошибок).
+ *  РЕШЕНИЕ v3.3.0:
+ *    ✅ Обход сломанного контроллера Lampa.
+ *    ✅ Перехват нажатий стрелок на уровне окна (capture phase).
+ *    ✅ Точное перемещение по строкам через сравнение координат offset().top.
+ *    ✅ Использование родного класса .focus и события hover:focus.
  *
  * ============================================================
  */
@@ -17,7 +17,7 @@
 
     var CONFIG = {
         debug: true,
-        ver: '3.2.1',
+        ver: '3.3.0',
         site: 'https://trahkino.me',
         proxy: [
             'https://api.codetabs.com/v1/proxy?quest={u}',
@@ -77,7 +77,6 @@
         cats: function(){ return []; }
     };
 
-    // ИЗМЕНЕНО: Класс .zf-wrap заменен на стандартный .items-cards
     var CSS = '\
         .items-cards{display:flex;flex-wrap:wrap;gap:1em;padding:1.5em}\
         .zf-loading{display:flex;align-items:center;justify-content:center;\
@@ -115,21 +114,101 @@
     function CardsComp(object){
         var self   = this;
         var scroll = new Lampa.Scroll({mask:true, over:true, step:250});
-        
-        // ИЗМЕНЕНО: Создаем контейнер с классом .items-cards
         var wrap   = $('<div class="items-cards"></div>');
+        
+        // Флаг активности компонента
+        var isActive = false;
+
+        // --- ШАГ 3: Метод установки фокуса ---
+        this.setFocus = function(card) {
+            if(!card || !card.length) return;
+            
+            // Убираем фокус у всех
+            wrap.find('.card').removeClass('focus');
+            
+            // Добавляем целевой карточке
+            card.addClass('focus');
+            
+            // Имитируем событие Lampa, чтобы сработал наш hover:focus для скролла
+            card.trigger('hover:focus');
+            
+            // Плавный скролл к элементу
+            card[0].scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+        };
+
+        // --- ШАГ 2: Перехватчик D-pad ---
+        this.initNavigation = function(e) {
+            // Проверяем, активен ли наш экран
+            if (!isActive) return;
+
+            var key = e.key;
+            
+            // Если нажали не стрелки и не Enter - выходим
+            if (!['ArrowRight', 'ArrowLeft', 'ArrowDown', 'ArrowUp', 'Enter'].includes(key)) return;
+
+            // Проверяем, находится ли фокус в нашей сетке
+            var current = wrap.find('.card.focus');
+            if(!current.length) {
+                e.preventDefault();
+                e.stopPropagation();
+                self.setFocus(wrap.find('.card').first());
+                return;
+            }
+
+            var allCards = wrap.find('.card');
+            var curIdx = allCards.index(current);
+            var target = null;
+
+            switch(key) {
+                case 'ArrowRight':
+                    target = allCards.eq(curIdx + 1);
+                    break;
+                case 'ArrowLeft':
+                    if(curIdx > 0) target = allCards.eq(curIdx - 1);
+                    break;
+                case 'ArrowDown':
+                    // Точное определение следующей строки по координатам
+                    var curTop = current.offset().top;
+                    target = current.nextAll('.card').filter(function(){
+                        return $(this).offset().top > curTop + 5; // +5 погрешность на субпиксели
+                    }).first();
+                    break;
+                case 'ArrowUp':
+                    var curTop = current.offset().top;
+                    target = current.prevAll('.card').filter(function(){
+                        return $(this).offset().top < curTop - 5;
+                    }).last();
+                    break;
+                case 'Enter':
+                    e.preventDefault();
+                    e.stopPropagation();
+                    current.trigger('hover:enter');
+                    return;
+            }
+
+            if(target && target.length) {
+                // ВАЖНО: Останавливаем всплытие события, чтобы Lampa не перехватила стрелку
+                e.preventDefault();
+                e.stopPropagation();
+                self.setFocus(target);
+            } else if (!target || !target.length) {
+                // Если вышли за границы сетки (вверх/влево), отпускаем событие для Lampa (вернет в меню)
+                wrap.find('.card').removeClass('focus');
+            }
+        };
 
         this.create = function(){
+            isActive = false;
             wrap.append('<div class="zf-loading" id="zf-loader"><div class="zf-spin"></div>Загрузка...</div>');
             scroll.append(wrap);
             Src.main(object.page || 1, function(items){ self.onDataLoaded(items); });
         };
 
+        // --- ШАГ 5: Модификация onDataLoaded ---
         this.onDataLoaded = function(items){
             $('#zf-loader').remove();
             if(!items.length){
                 wrap.html('<div class="zf-empty">📭 Пусто</div>');
-                self.bindFocus();
                 return;
             }
 
@@ -140,9 +219,13 @@
                         poster: m.poster,
                         id: index
                     });
-
+                    
+                    // Привязываем данные
+                    card.data('card-url', m.url);
+                    card.data('card-title', m.title);
+                    
                     card.on('hover:enter', function(){
-                        openInBrowser(m.url, m.title);
+                        openInBrowser($(this).data('card-url'), $(this).data('card-title'));
                     });
 
                     card.on('hover:focus', function(){
@@ -154,26 +237,28 @@
                     D.err('Template', e.message);
                 }
             });
-
-            self.bindFocus();
-        };
-
-        this.bindFocus = function(){
+            
+            // Инициализация навигации ( capture phase = true, чтобы перехватить до Lampa)
+            window.addEventListener('keydown', self.initNavigation, true);
+            
+            // Фокус на первую карточку
             setTimeout(function(){
-                Lampa.Controller.collectionSet(wrap);
-                Lampa.Controller.collectionFocus(false, wrap);
-            }, 150);
+                isActive = true;
+                self.setFocus(wrap.find('.card').first());
+            }, 300);
         };
 
-        this.start = function(){};
-        this.toggle = function(){
-            Lampa.Controller.collectionSet(wrap);
-            Lampa.Controller.collectionFocus(false, wrap);
-        };
-        this.pause = function(){};
-        this.stop = function(){};
+        // Жизненный цикл
+        this.start = function(){ isActive = true; };
+        this.toggle = function(){ isActive = true; };
+        this.pause = function(){ isActive = false; };
+        this.stop = function(){ isActive = false; };
         this.render = function(){ return scroll.render(); };
+        
+        // --- ШАГ 6: Очистка ---
         this.destroy = function(){ 
+            isActive = false;
+            window.removeEventListener('keydown', self.initNavigation, true); // Убираем перехватчик
             scroll.destroy(); 
             wrap.remove(); 
         };
