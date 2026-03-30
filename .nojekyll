@@ -1,1 +1,2 @@
-
+# Этот пустой файл говорит GitHub Pages не обрабатывать файлы через Jekyll
+touch .nojekyll
