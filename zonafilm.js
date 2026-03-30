@@ -1,12 +1,12 @@
 /**
  * ============================================================
- *  LAMPA PLUGIN — Trahkino v3.5.1 (Исправлено меню)
+ *  LAMPA PLUGIN — Trahkino v3.5.2 (Навигация в меню)
  * ============================================================
  *
- *  ИСПРАВЛЕНИЯ v3.5.1:
- *    ✅ Убран position:absolute из CSS меню (из-за него кнопки прятались).
- *    ✅ Меню отрисовано стандартным контейнером Lampa.Scroll.
- *    ✅ Вся навигация и скролл карточек работают как в 3.5.0.
+ *  ИСПРАВЛЕНИЯ v3.5.2:
+ *    ✅ В MenuComp добавлен перехват D-pad для переключения кнопок.
+ *    ✅ Вверх/Вниз переключают фокус, Enter нажимает кнопку.
+ *    ✅ Навигация карточек оставлена без изменений.
  *
  * ============================================================
  */
@@ -16,7 +16,7 @@
 
     var CONFIG = {
         debug: true,
-        ver: '3.5.1',
+        ver: '3.5.2',
         site: 'https://trahkino.me',
         proxy: [
             'https://api.codetabs.com/v1/proxy?quest={u}',
@@ -76,9 +76,6 @@
         cats: function(){ return []; }
     };
 
-    /* ==========================================================
-     *  СТИЛИ (Упрощено для стабильности)
-     * ========================================================== */
     var CSS = '\
         .items-cards{display:flex;flex-wrap:wrap;gap:1em;padding:1.5em}\
         .zf-loading{display:flex;align-items:center;justify-content:center;\
@@ -97,20 +94,67 @@
     $('<style>').attr('id','zf-css').text(CSS).appendTo('head');
 
     /* ==========================================================
-     *  КОМПОНЕНТ ГЛАВНОГО МЕНЮ (Без position:absolute)
+     *  КОМПОНЕНТ ГЛАВНОГО МЕНЮ (С D-pad навигацией)
      * ========================================================== */
     function MenuComp(){
+        var self   = this; // Добавлено!
         var scroll = new Lampa.Scroll({mask:true, over:true});
         var wrap   = $('<div class="zf-menu-wrap"></div>');
         var list   = $('<div></div>');
         
+        var isActiveMenu = false;
         var items = [
             { title: '🔍 Поиск', action: 'search' },
             { title: '📽 Последние видео', action: 'all' },
             { title: '← Назад', action: 'back' }
         ];
 
+        this.setFocusMenu = function(el) {
+            list.find('.zf-menu-item').removeClass('focus');
+            el.addClass('focus');
+        };
+
+        // --- Навигация для меню (Up/Down/Enter) ---
+        this.initMenuNav = function(e) {
+            if (!isActiveMenu) return;
+
+            var key = e.key;
+            
+            // Обработка кнопки "Назад" в меню
+            if (key === 'Escape' || key === 'Backspace') {
+                Lampa.Activity.backward();
+                return; 
+            }
+
+            if (!['ArrowUp', 'ArrowDown', 'Enter'].includes(key)) return;
+
+            var current = list.find('.zf-menu-item.focus');
+            if(!current.length) {
+                self.setFocusMenu(list.find('.zf-menu-item').first());
+                return;
+            }
+
+            var target = null;
+
+            switch(key) {
+                case 'ArrowDown': target = current.next('.zf-menu-item'); break;
+                case 'ArrowUp': target = current.prev('.zf-menu-item'); break;
+                case 'Enter':
+                    e.preventDefault();
+                    e.stopPropagation();
+                    current.trigger('hover:enter');
+                    return;
+            }
+
+            if(target && target.length) {
+                e.preventDefault();
+                e.stopPropagation();
+                self.setFocusMenu(target);
+            }
+        };
+
         this.create = function(){
+            isActiveMenu = false;
             wrap.append(list);
             scroll.append(wrap);
 
@@ -127,22 +171,30 @@
                 });
                 list.append(el);
             });
+
+            // Запускаем перехватчик меню
+            window.addEventListener('keydown', self.initMenuNav, true);
+            
+            setTimeout(function(){
+                isActiveMenu = true;
+                self.setFocusMenu(list.find('.zf-menu-item').first());
+            }, 200);
         };
 
-        this.start = function(){
-            Lampa.Controller.collectionSet(list);
-            Lampa.Controller.collectionFocus(false, list);
-            Lampa.Controller.toggle('content');
-        };
-        this.toggle = function(){ Lampa.Controller.toggle('content'); };
-        this.pause = function(){};
-        this.stop = function(){};
+        this.start = function(){ isActiveMenu = true; };
+        this.toggle = function(){ isActiveMenu = true; };
+        this.pause = function(){ isActiveMenu = false; };
+        this.stop = function(){ isActiveMenu = false; };
         this.render = function(){ return scroll.render(); };
-        this.destroy = function(){ scroll.destroy(); wrap.remove(); };
+        this.destroy = function(){ 
+            isActiveMenu = false;
+            window.removeEventListener('keydown', self.initMenuNav, true); 
+            scroll.destroy(); wrap.remove(); 
+        };
     }
 
     /* ==========================================================
-     *  КОМПОНЕНТ КАРТОЧЕК (Без изменений с 3.5.0)
+     *  КОМПОНЕНТ КАРТОЧЕК
      * ========================================================== */
     function CardsComp(object){
         var self   = this;
@@ -308,8 +360,7 @@
         this.destroy = function(){ 
             isActive = false;
             window.removeEventListener('keydown', self.initNavigation, true); 
-            scroll.destroy(); 
-            wrap.remove(); 
+            scroll.destroy(); wrap.remove(); 
         };
     }
 
