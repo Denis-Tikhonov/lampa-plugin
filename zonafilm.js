@@ -1,14 +1,15 @@
 /**
  * ============================================================
- *  LAMPA PLUGIN — Trahkino v3.5.3 (Финальный скролл и клик)
+ *  LAMPA PLUGIN — Trahkino v3.5.4 (Нативный скролл Lampa)
  * ============================================================
  *
- *  ИСПРАВЛЕНИЯ v3.5.3:
- *    ✅ Скролл: точечное вычисление и прокрутка внутреннего 
- *       контейнера .scroll__body (вместо нерабочего scrollIntoView).
- *    ✅ Клик: заменен Lampa.Android.openUrl на эмуляцию клика по 
- *       скрытому <a target="_blank">. Это открывает браузер без 
- *       обрушения WebView (Script Error).
+ *  ИСПРАВЛЕНИЯ v3.5.4:
+ *    ✅ Scroll инициализирован по эталону из документации 
+ *       (добавлены scroll_by_item: true, end_ratio: 2).
+ *    ✅ В конце отрисовки карточек вызывается Lampa.Layer.visible(), 
+ *       чтобы ядро пересчитало высоту и включило прокрутку.
+ *    ✅ setFocus использует scroll.position() вместо ручного 
+ *       калькулятора scrollTop (работает в паре со scroll_by_item).
  *
  * ============================================================
  */
@@ -18,7 +19,7 @@
 
     var CONFIG = {
         debug: true,
-        ver: '3.5.3',
+        ver: '3.5.4',
         site: 'https://trahkino.me',
         proxy: [
             'https://api.codetabs.com/v1/proxy?quest={u}',
@@ -100,7 +101,8 @@
      * ========================================================== */
     function MenuComp(){
         var self   = this;
-        var scroll = new Lampa.Scroll({mask:true, over:true});
+        // ИЗМЕНЕНО: Добавлен scroll_by_item
+        var scroll = new Lampa.Scroll({mask:true, over:true, scroll_by_item: true, end_ratio: 2});
         var wrap   = $('<div class="zf-menu-wrap"></div>');
         var list   = $('<div></div>');
         
@@ -130,15 +132,12 @@
                 case 'ArrowDown': target = current.next('.zf-menu-item'); break;
                 case 'ArrowUp': target = current.prev('.zf-menu-item'); break;
                 case 'Enter':
-                    e.preventDefault();
-                    e.stopPropagation();
-                    current.trigger('hover:enter');
-                    return;
+                    e.preventDefault(); e.stopPropagation();
+                    current.trigger('hover:enter'); return;
             }
 
             if(target && target.length) {
-                e.preventDefault();
-                e.stopPropagation();
+                e.preventDefault(); e.stopPropagation();
                 self.setFocusMenu(target);
             }
         };
@@ -186,7 +185,8 @@
      * ========================================================== */
     function CardsComp(object){
         var self   = this;
-        var scroll = new Lampa.Scroll({mask:true, over:true, step:250});
+        // ИЗМЕНЕНО: Добавлен scroll_by_item и end_ratio по документации
+        var scroll = new Lampa.Scroll({mask:true, over:true, scroll_by_item: true, end_ratio: 2});
         var wrap   = $('<div class="items-cards"></div>');
         
         var isActive = false;
@@ -198,20 +198,11 @@
             card.addClass('focus');
             card.trigger('hover:focus');
             
-            // --- ТОЧЕЧНЫЙ СКРОЛЛ ---
-            // Ищем скрытый контейнер прокрутки внутри Lampa.Scroll
-            var scrollBody = scroll.render().find('.scroll__body')[0] || scroll.render()[0];
-            if (scrollBody) {
-                // Вычисляем, на сколько пикселей нужно прокрутить
-                var offsetTop = card[0].offsetTop - scrollBody.offsetTop;
-                var scrollTo = offsetTop - (scrollBody.clientHeight / 2) + (card.height() / 2);
-                
-                // Прокручиваем
-                scrollBody.scrollTo({
-                    top: scrollTo,
-                    behavior: 'smooth'
-                });
-            }
+            // ИЗМЕНЕНО: Используем нативный метод Lampa для позиционирования
+            // (работает корректно только при включенном scroll_by_item)
+            try { 
+                scroll.position(card[0]); 
+            } catch(e){}
         };
 
         this.initNavigation = function(e) {
@@ -330,6 +321,9 @@
                 }
             });
             
+            // ИЗМЕНЕНО: Сообщаем Lampa, что контент обновлен, чтобы активировать скролл
+            try { Lampa.Layer.visible(scroll.render()); } catch(e){}
+            
             window.addEventListener('keydown', self.initNavigation, true);
             setTimeout(function(){
                 isActive = true;
@@ -349,29 +343,19 @@
         };
     }
 
-    /* ==========================================================
-     *  БЕЗОПАСНОЕ ВОСПРОИЗВЕДЕНИЕ
-     * ========================================================== */
     function openInBrowser(url, title){
         D.noty('▶ Открываю: ' + title);
         lastBrowserOpenTime = Date.now(); 
         
-        // Эмуляция клика по скрытой ссылке (безопасно для WebView, нет Script Error)
         var link = document.createElement('a');
         link.href = url;
         link.target = '_blank';
         link.rel = 'noopener';
-        link.style.display = 'none'; // Прячем ссылку
+        link.style.display = 'none'; 
         document.body.appendChild(link);
-        
-        // Кликаем
         link.click();
-        
-        // Удаляем мусор через 100мс
         setTimeout(function() {
-            if (link.parentNode) {
-                document.body.removeChild(link);
-            }
+            if (link.parentNode) document.body.removeChild(link);
         }, 100);
     }
 
