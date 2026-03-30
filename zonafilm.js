@@ -1,14 +1,13 @@
 /**
  * ============================================================
- *  LAMPA PLUGIN — Trahkino v3.4.0 (Идеальная навигация)
+ *  LAMPA PLUGIN — Trahkino v3.4.1 (Свободная навигация)
  * ============================================================
  *
- *  ИСПРАВЛЕНИЯ v3.4.0:
- *    ✅ Вертикальная навигация: точное попадание на карточку 
- *       строго над/под текущей (сравнение координат X и Y).
- *    ✅ Скролл: работает родной scroll.update() из ядра Lampa.
- *    ✅ Защита от выхода: при возврате из браузера кнопка "Назад" 
- *       игнорируется (debounce 1.5 сек), вы остаетесь на сетке.
+ *  ИСПРАВЛЕНИЯ v3.4.1:
+ *    ✅ Выход из сетки: при упоре в край событие НЕ блокируется.
+ *       Ядро Lampa возвращает фокус в меню/назад.
+ *    ✅ Кнопка "Назад": работает стандартно (кроме выхода из браузера).
+ *    ✅ Скролл: используется scroll.position() из API Lampa.
  *
  * ============================================================
  */
@@ -18,7 +17,7 @@
 
     var CONFIG = {
         debug: true,
-        ver: '3.4.0',
+        ver: '3.4.1',
         site: 'https://trahkino.me',
         proxy: [
             'https://api.codetabs.com/v1/proxy?quest={u}',
@@ -118,7 +117,7 @@
         var wrap   = $('<div class="items-cards"></div>');
         
         var isActive = false;
-        var lastBrowserOpenTime = 0; // Для защиты от двойного нажатия "Назад"
+        var lastBrowserOpenTime = 0;
 
         this.setFocus = function(card) {
             if(!card || !card.length) return;
@@ -126,8 +125,21 @@
             card.addClass('focus');
             card.trigger('hover:focus');
             
-            // Вызываем скролл Lampa к карточке (без scrollIntoView)
-            scroll.update(card); 
+            // Скролл через API Lampa (метод position из вашего списка)
+            try {
+                if (typeof scroll.position === 'function') {
+                    scroll.position(card[0]); 
+                } else {
+                    // Запасной метод (чистый JS), если position недоступен
+                    var scrollBody = scroll.body ? scroll.body() : scroll.render();
+                    var cardTop = card[0].offsetTop;
+                    var wrapTop = scrollBody.offset().top;
+                    var scrollTo = cardTop - wrapTop - (scrollBody.height() / 2) + (card.height() / 2);
+                    scrollBody.scrollTop(scrollTo);
+                }
+            } catch(e) {
+                card[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
         };
 
         this.initNavigation = function(e) {
@@ -135,22 +147,20 @@
 
             var key = e.key;
             
-            if (!['ArrowRight', 'ArrowLeft', 'ArrowDown', 'ArrowUp', 'Enter', 'Escape', 'Backspace'].includes(key)) return;
-
-            // --- ЗАЩИТА ОТ ВЫХОДА ИЗ БРАУЗЕРА ---
+            // --- КНОПКА НАЗАД ---
             if (key === 'Escape' || key === 'Backspace') {
                 if (Date.now() - lastBrowserOpenTime < 1500) {
-                    // Если прошло меньше 1.5 сек после открытия видео - блокируем "Назад"
+                    // Защита: только что открыли браузер, блокируем выход
                     e.preventDefault();
                     e.stopPropagation();
-                    wrap.find('.card').removeClass('focus');
-                    setTimeout(function(){ self.setFocus(wrap.find('.card.focus').length ? wrap.find('.card.focus') : wrap.find('.card').first()); }, 100);
-                    return;
+                    return; 
                 }
-                // Иначе - обычный выход (отдаем событие Lampa)
-                wrap.find('.card').removeClass('focus');
+                // Стандартный выход: не трогаем событие, пусть Lampa делает backward()
+                wrap.find('.card').removeClass('focus'); // Снимаем нашу рамку
                 return; 
             }
+
+            if (!['ArrowRight', 'ArrowLeft', 'ArrowDown', 'ArrowUp', 'Enter'].includes(key)) return;
 
             var current = wrap.find('.card.focus');
             if(!current.length) {
@@ -173,23 +183,18 @@
                 case 'ArrowDown': {
                     var curTop = current.offset().top;
                     var nextRowTop = null;
-                    // 1. Ищем координату Y следующей строки
                     current.nextAll('.card').each(function(){
                         var t = $(this).offset().top;
-                        if (t > curTop + 5) { nextRowTop = t; return false; } // break
+                        if (t > curTop + 5) { nextRowTop = t; return false; }
                     });
                     
-                    // 2. Если нашли строку, ищем в ней карточку с ближайшей координатой X
                     if (nextRowTop !== null) {
                         var curLeft = current.offset().left;
                         var minDist = Infinity;
                         current.nextAll('.card').each(function(){
                             if (Math.abs($(this).offset().top - nextRowTop) < 5) {
                                 var dist = Math.abs($(this).offset().left - curLeft);
-                                if (dist < minDist) {
-                                    minDist = dist;
-                                    target = $(this);
-                                }
+                                if (dist < minDist) { minDist = dist; target = $(this); }
                             }
                         });
                     }
@@ -199,23 +204,18 @@
                 case 'ArrowUp': {
                     var curTop = current.offset().top;
                     var prevRowTop = null;
-                    // 1. Ищем координату Y верхней строки (prevAll идет снизу вверх)
                     current.prevAll('.card').each(function(){
                         var t = $(this).offset().top;
-                        if (t < curTop - 5) { prevRowTop = t; return false; } // break
+                        if (t < curTop - 5) { prevRowTop = t; return false; }
                     });
                     
-                    // 2. Ищем карточку с ближайшим X
                     if (prevRowTop !== null) {
                         var curLeft = current.offset().left;
                         var minDist = Infinity;
                         current.prevAll('.card').each(function(){
                             if (Math.abs($(this).offset().top - prevRowTop) < 5) {
                                 var dist = Math.abs($(this).offset().left - curLeft);
-                                if (dist < minDist) {
-                                    minDist = dist;
-                                    target = $(this);
-                                }
+                                if (dist < minDist) { minDist = dist; target = $(this); }
                             }
                         });
                     }
@@ -229,13 +229,19 @@
                     return;
             }
 
-            if(target && target.length) {
-                e.preventDefault();
-                e.stopPropagation();
-                self.setFocus(target);
-            } else if (!target || !target.length) {
+            // --- СВОБОДНЫЙ ВЫХОД ИЗ СЕТКИ ---
+            if(!target || !target.length) {
+                // Упёрлись в край сетки (нет карточки дальше). 
+                // Снимаем наш фокус и ОТПУСКАЕМ событие (не вызываем stopPropagation).
+                // Ядро Lampa увидит пустой фокус и перенаправит вас в меню/назад.
                 wrap.find('.card').removeClass('focus');
+                return; 
             }
+
+            // Перемещение внутри сетки (здесь мы перехватываем управление)
+            e.preventDefault();
+            e.stopPropagation();
+            self.setFocus(target);
         };
 
         this.create = function(){
@@ -301,7 +307,7 @@
 
     function openInBrowser(url, title){
         D.noty('▶ Открываю: ' + title);
-        lastBrowserOpenTime = Date.now(); // Записываем время клика
+        lastBrowserOpenTime = Date.now(); 
         try {
             if(typeof Lampa.Android !== 'undefined' && Lampa.Android.openUrl){
                 Lampa.Android.openUrl(url);
