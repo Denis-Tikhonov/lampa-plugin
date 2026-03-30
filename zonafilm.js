@@ -1,4 +1,4 @@
-"use strict";
+сделай необходимую разметку кода для последующего добавления, исправления источников. "use strict";
 function _toConsumableArray(e) {
   return (
     _arrayWithoutHoles(e) ||
@@ -421,7 +421,7 @@ function _toPrimitive(e, t) {
     var e = "AdultJS";
     Lampa.Lang.add({
       lampac_adultName: {
-        ru: "Для взрослых",
+        ru: "Adult JS",
         en: "Adult 18+",
         uk: "Для взрослых",
         zh: "Adult 18+",
