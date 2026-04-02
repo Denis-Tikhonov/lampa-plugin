@@ -3,30 +3,26 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>AdultJS Debug Module v1.0</title>
+<title>AdultJS Debug Module v1.1</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { font-family: 'Consolas', 'Monaco', monospace; background: #1a1a2e; color: #e0e0e0; padding: 20px; }
-  
   h1 { color: #00d4ff; margin-bottom: 5px; font-size: 22px; }
   .subtitle { color: #888; margin-bottom: 20px; font-size: 13px; }
-  
-  /* Панель управления */
-  .controls { 
-    background: #16213e; border: 1px solid #0f3460; border-radius: 8px; 
-    padding: 15px; margin-bottom: 20px; display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
+  .controls {
+    background: #16213e; border: 1px solid #0f3460; border-radius: 8px;
+    padding: 15px; margin-bottom: 20px; display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end;
   }
-  .controls label { color: #aaa; font-size: 13px; }
-  .controls input, .controls select { 
-    background: #1a1a2e; color: #fff; border: 1px solid #0f3460; 
+  .controls label { color: #aaa; font-size: 12px; display: block; margin-bottom: 3px; }
+  .controls input, .controls select {
+    background: #1a1a2e; color: #fff; border: 1px solid #0f3460;
     border-radius: 4px; padding: 6px 10px; font-family: inherit; font-size: 13px;
   }
   .controls input:focus, .controls select:focus { outline: none; border-color: #00d4ff; }
-  
-  button { 
-    background: #0f3460; color: #00d4ff; border: 1px solid #00d4ff; 
-    border-radius: 4px; padding: 8px 16px; cursor: pointer; font-family: inherit; 
-    font-size: 13px; transition: all 0.2s;
+  button {
+    background: #0f3460; color: #00d4ff; border: 1px solid #00d4ff;
+    border-radius: 4px; padding: 8px 16px; cursor: pointer; font-family: inherit;
+    font-size: 13px; transition: all 0.2s; white-space: nowrap;
   }
   button:hover { background: #00d4ff; color: #1a1a2e; }
   button:disabled { opacity: 0.4; cursor: not-allowed; }
@@ -34,14 +30,12 @@
   button.danger:hover { background: #ff4757; color: #fff; }
   button.success { border-color: #2ed573; color: #2ed573; }
   button.success:hover { background: #2ed573; color: #1a1a2e; }
-  
-  /* Лог */
-  .log-container { 
-    background: #0d1117; border: 1px solid #30363d; border-radius: 8px; 
-    padding: 15px; max-height: 70vh; overflow-y: auto; margin-top: 10px;
+  .log-container {
+    background: #0d1117; border: 1px solid #30363d; border-radius: 8px;
+    padding: 15px; max-height: 75vh; overflow-y: auto; margin-top: 10px;
   }
-  .log-entry { 
-    padding: 4px 0; border-bottom: 1px solid #21262d; font-size: 12px; 
+  .log-entry {
+    padding: 3px 0; border-bottom: 1px solid #161b22; font-size: 12px;
     line-height: 1.6; word-break: break-all;
   }
   .log-entry:last-child { border-bottom: none; }
@@ -49,13 +43,12 @@
   .log-entry.success { color: #3fb950; }
   .log-entry.warn { color: #d29922; }
   .log-entry.error { color: #f85149; }
-  .log-entry.header { color: #bc8cff; font-weight: bold; font-size: 14px; margin-top: 10px; }
-  .log-entry.dim { color: #666; }
+  .log-entry.header { color: #bc8cff; font-weight: bold; font-size: 14px; margin-top: 12px; }
+  .log-entry.dim { color: #555; }
   .log-entry.video-url { color: #f0e68c; }
-  
-  .timestamp { color: #555; margin-right: 8px; }
-  .tag { 
-    display: inline-block; padding: 1px 6px; border-radius: 3px; 
+  .timestamp { color: #444; margin-right: 8px; font-size: 11px; }
+  .tag {
+    display: inline-block; padding: 1px 6px; border-radius: 3px;
     font-size: 10px; margin-right: 6px; font-weight: bold;
   }
   .tag.pass { background: #238636; color: #fff; }
@@ -63,11 +56,9 @@
   .tag.skip { background: #6e7681; color: #fff; }
   .tag.test { background: #1f6feb; color: #fff; }
   .tag.step { background: #8b5cf6; color: #fff; }
-  
-  /* Сводка */
-  .summary { 
-    background: #16213e; border: 1px solid #0f3460; border-radius: 8px; 
-    padding: 15px; margin-top: 15px; display: flex; gap: 30px; flex-wrap: wrap;
+  .summary {
+    background: #16213e; border: 1px solid #0f3460; border-radius: 8px;
+    padding: 15px; margin-top: 15px; display: none; gap: 30px; flex-wrap: wrap;
   }
   .summary-item { text-align: center; }
   .summary-item .num { font-size: 28px; font-weight: bold; }
@@ -76,11 +67,9 @@
   .num.red { color: #f85149; }
   .num.yellow { color: #d29922; }
   .num.blue { color: #58a6ff; }
-  
-  /* Карточка превью */
   .preview-cards { display: flex; flex-wrap: wrap; gap: 10px; margin: 10px 0; }
-  .preview-card { 
-    background: #21262d; border-radius: 6px; overflow: hidden; width: 200px; 
+  .preview-card {
+    background: #21262d; border-radius: 6px; overflow: hidden; width: 200px;
     border: 1px solid #30363d; font-size: 11px;
   }
   .preview-card img { width: 100%; height: 112px; object-fit: cover; background: #333; }
@@ -88,122 +77,315 @@
   .preview-card .card-title { color: #ccc; margin-bottom: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .preview-card .card-duration { color: #888; }
   .preview-card .card-link { color: #58a6ff; text-decoration: none; font-size: 10px; word-break: break-all; }
-  
-  /* Видео тест */
-  .video-test-area { margin: 10px 0; }
-  .video-test-area video { max-width: 400px; max-height: 225px; border-radius: 6px; background: #000; }
-  
-  /* Табы */
-  .tabs { display: flex; gap: 5px; margin-bottom: 15px; flex-wrap: wrap; }
-  .tab { 
-    padding: 6px 14px; border-radius: 4px 4px 0 0; cursor: pointer; 
+  .tabs { display: flex; gap: 5px; margin-bottom: 0; flex-wrap: wrap; }
+  .tab {
+    padding: 6px 14px; border-radius: 4px 4px 0 0; cursor: pointer;
     background: #16213e; color: #888; border: 1px solid #0f3460; border-bottom: none;
     font-size: 12px; transition: all 0.2s;
   }
   .tab:hover { color: #fff; }
   .tab.active { background: #0d1117; color: #00d4ff; border-color: #00d4ff; }
-  
   .hidden { display: none; }
-  
-  /* Прогресс */
-  .progress-bar { 
-    height: 4px; background: #21262d; border-radius: 2px; margin: 10px 0; overflow: hidden;
-  }
+  .progress-bar { height: 4px; background: #21262d; border-radius: 2px; margin: 10px 0; overflow: hidden; }
   .progress-bar .fill { height: 100%; background: #00d4ff; transition: width 0.3s; border-radius: 2px; }
+  .proxy-test { font-size: 11px; margin-top: 4px; }
+  .proxy-test.ok { color: #3fb950; }
+  .proxy-test.err { color: #f85149; }
+  code { background: #21262d; padding: 1px 4px; border-radius: 3px; font-size: 11px; }
+  a { color: #58a6ff; }
 </style>
 </head>
 <body>
 
-<h1>🔧 AdultJS Debug Module</h1>
-<p class="subtitle">Отладка и проверка актуальности источников. Все запросы через CORS-прокси.</p>
+<h1>🔧 AdultJS Debug Module v1.1</h1>
+<p class="subtitle">Диагностика и проверка актуальности источников</p>
 
-<!-- Панель управления -->
 <div class="controls">
   <div>
-    <label>CORS Proxy:</label><br>
-    <select id="proxySelect">
-      <option value="https://corsproxy.io/?">corsproxy.io</option>
-      <option value="https://api.allorigins.win/raw?url=">allorigins.win</option>
-      <option value="">Без прокси (native)</option>
+    <label>CORS Proxy:</label>
+    <select id="proxySelect" onchange="onProxyChange()">
+      <option value="corsproxy">corsproxy.io (рекомендуется)</option>
+      <option value="allorigins">allorigins.win</option>
+      <option value="corsh">cors.sh</option>
+      <option value="custom">Свой прокси...</option>
+      <option value="none">Без прокси</option>
     </select>
+    <div id="proxyStatus" class="proxy-test"></div>
+  </div>
+  <div id="customProxyWrap" style="display:none">
+    <label>URL прокси:</label>
+    <input type="text" id="customProxy" placeholder="https://my-proxy.workers.dev/?url=" style="width:300px;">
   </div>
   <div>
-    <label>Таймаут (сек):</label><br>
-    <input type="number" id="timeout" value="15" min="5" max="60" style="width:60px;">
+    <label>Таймаут (сек):</label>
+    <input type="number" id="timeout" value="20" min="5" max="120" style="width:60px;">
   </div>
   <div>
-    <label>Фильтр сайтов:</label><br>
+    <label>Фильтр сайтов:</label>
     <input type="text" id="siteFilter" placeholder="trahkino, spankbang..." style="width:200px;">
   </div>
-  <div style="display:flex;gap:5px;align-items:flex-end;">
-    <button onclick="runAllTests()" id="btnRunAll">▶ Тестировать все</button>
-    <button onclick="runFilteredTests()" id="btnRunFiltered" class="success">▶ Тестировать выбранные</button>
-    <button onclick="clearLog()" class="danger">✕ Очистить лог</button>
+  <div style="display:flex;gap:5px;">
+    <button onclick="testProxy()" id="btnTestProxy">🔌 Тест прокси</button>
+    <button onclick="runFilteredTests()" class="success" id="btnRunFiltered">▶ Тест выбранных</button>
+    <button onclick="runAllTests()" id="btnRunAll">▶▶ Тест ВСЕХ</button>
+    <button onclick="clearLog()" class="danger">✕ Очистить</button>
     <button onclick="exportLog()">📋 Экспорт</button>
   </div>
 </div>
 
-<div class="progress-bar" id="progressBar"><div class="fill" id="progressFill" style="width:0%"></div></div>
+<div class="progress-bar"><div class="fill" id="progressFill" style="width:0%"></div></div>
 
-<!-- Сводка -->
-<div class="summary" id="summary" style="display:none;">
+<div class="summary" id="summary">
   <div class="summary-item"><div class="num blue" id="sumTotal">0</div><div class="label">Всего</div></div>
   <div class="summary-item"><div class="num green" id="sumPass">0</div><div class="label">Успешно</div></div>
   <div class="summary-item"><div class="num red" id="sumFail">0</div><div class="label">Ошибка</div></div>
   <div class="summary-item"><div class="num yellow" id="sumWarn">0</div><div class="label">Частично</div></div>
 </div>
 
-<!-- Табы -->
-<div class="tabs" id="tabs">
+<div class="tabs">
   <div class="tab active" data-tab="log" onclick="switchTab('log')">📋 Лог</div>
   <div class="tab" data-tab="cards" onclick="switchTab('cards')">🖼 Карточки</div>
   <div class="tab" data-tab="video" onclick="switchTab('video')">🎬 Видео</div>
   <div class="tab" data-tab="report" onclick="switchTab('report')">📊 Отчёт</div>
 </div>
 
-<!-- Контент табов -->
 <div id="tab-log" class="log-container"></div>
 <div id="tab-cards" class="log-container hidden"><div class="preview-cards" id="previewCards"></div></div>
-<div id="tab-video" class="log-container hidden"><div class="video-test-area" id="videoTestArea"></div></div>
-<div id="tab-report" class="log-container hidden" id="reportArea"></div>
+<div id="tab-video" class="log-container hidden"><div id="videoTestArea"></div></div>
+<div id="tab-report" class="log-container hidden"></div>
 
 <script>
 // ======================================================================
-// [DEBUG MODULE] AdultJS Source Tester v1.0
+// [DEBUG MODULE] v1.1
+// Исправления: множественные прокси, таймауты, диагностика ошибок
 // ======================================================================
 
-const LOG = document.getElementById('tab-log');
-const CARDS = document.getElementById('previewCards');
-const VIDEO_AREA = document.getElementById('videoTestArea');
-const REPORT = document.getElementById('tab-report');
+const LOG_EL = document.getElementById('tab-log');
+const CARDS_EL = document.getElementById('previewCards');
+const VIDEO_EL = document.getElementById('videoTestArea');
+const REPORT_EL = document.getElementById('tab-report');
 
 let logEntries = [];
 let testResults = { total: 0, pass: 0, fail: 0, warn: 0, details: [] };
 
 // ======================================================================
-// [UTIL] Логирование
+// [PROXY] Конфигурация прокси-серверов
 // ======================================================================
 
-function log(msg, cls = '', tag = '') {
+const PROXIES = {
+  corsproxy: {
+    name: 'corsproxy.io',
+    // corsproxy.io принимает URL после знака ?
+    buildUrl: (url) => 'https://corsproxy.io/?' + encodeURIComponent(url),
+    testUrl: 'https://corsproxy.io/?' + encodeURIComponent('https://httpbin.org/get')
+  },
+  allorigins: {
+    name: 'allorigins.win',
+    buildUrl: (url) => 'https://api.allorigins.win/raw?url=' + encodeURIComponent(url),
+    testUrl: 'https://api.allorigins.win/raw?url=' + encodeURIComponent('https://httpbin.org/get')
+  },
+  corsh: {
+    name: 'cors.sh',
+    buildUrl: (url) => 'https://proxy.cors.sh/' + url,
+    testUrl: 'https://proxy.cors.sh/https://httpbin.org/get',
+    headers: { 'x-cors-api-key': 'temp_' + Date.now() }
+  },
+  custom: {
+    name: 'Custom',
+    buildUrl: (url) => {
+      const base = document.getElementById('customProxy').value.trim();
+      if (!base) return url;
+      // Если оканчивается на = то добавляем encodeURIComponent
+      if (base.endsWith('=')) return base + encodeURIComponent(url);
+      // Если оканчивается на / то добавляем URL как есть
+      if (base.endsWith('/')) return base + url;
+      return base + encodeURIComponent(url);
+    },
+    testUrl: null
+  },
+  none: {
+    name: 'Direct (no proxy)',
+    buildUrl: (url) => url,
+    testUrl: null
+  }
+};
+
+function getSelectedProxy() {
+  return PROXIES[document.getElementById('proxySelect').value] || PROXIES.corsproxy;
+}
+
+function onProxyChange() {
+  const val = document.getElementById('proxySelect').value;
+  document.getElementById('customProxyWrap').style.display = val === 'custom' ? '' : 'none';
+  document.getElementById('proxyStatus').textContent = '';
+}
+
+// ======================================================================
+// [PROXY] Тест прокси
+// ======================================================================
+
+async function testProxy() {
+  const proxy = getSelectedProxy();
+  const status = document.getElementById('proxyStatus');
+  status.textContent = '⏳ Тестирование...';
+  status.className = 'proxy-test';
+
+  // Тест 1: Простой запрос
+  log(`🔌 Тестирование прокси: ${proxy.name}`, 'info', 'TEST');
+
+  try {
+    const testUrl = proxy.buildUrl('https://httpbin.org/get');
+    log(`  URL: ${testUrl.substring(0, 100)}...`, 'dim');
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 10000);
+
+    const resp = await fetch(testUrl, {
+      signal: controller.signal,
+      headers: proxy.headers || {}
+    });
+    clearTimeout(timer);
+
+    if (resp.ok) {
+      const text = await resp.text();
+      const isJson = text.includes('"origin"') || text.includes('"url"');
+      log(`  ✓ httpbin.org: HTTP ${resp.status}, ответ ${text.length} байт, JSON: ${isJson}`, 'success');
+      status.textContent = '✓ Прокси работает';
+      status.className = 'proxy-test ok';
+    } else {
+      log(`  ✗ httpbin.org: HTTP ${resp.status} ${resp.statusText}`, 'error');
+      status.textContent = `✗ HTTP ${resp.status}`;
+      status.className = 'proxy-test err';
+    }
+  } catch (e) {
+    log(`  ✗ Ошибка: ${e.message}`, 'error');
+    status.textContent = `✗ ${e.message}`;
+    status.className = 'proxy-test err';
+  }
+
+  // Тест 2: Adult-сайт
+  log(`  Тест adult-сайта...`, 'info');
+  try {
+    const testUrl = proxy.buildUrl('https://trahkino.me/');
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15000);
+
+    const resp = await fetch(testUrl, {
+      signal: controller.signal,
+      headers: proxy.headers || {}
+    });
+    clearTimeout(timer);
+
+    if (resp.ok) {
+      const text = await resp.text();
+      const hasContent = text.includes('<html') || text.includes('<!DOCTYPE') || text.includes('trahkino');
+      log(`  ✓ trahkino.me: HTTP ${resp.status}, ${Math.round(text.length/1024)} KB, HTML: ${hasContent}`, 'success');
+
+      if (!hasContent) {
+        log(`  ⚠ Ответ не содержит HTML! Возможно прокси возвращает ошибку или редирект`, 'warn');
+        log(`  Первые 200 символов: <code>${text.substring(0, 200).replace(/</g,'&lt;')}</code>`, 'dim');
+      }
+    } else {
+      log(`  ✗ trahkino.me: HTTP ${resp.status} ${resp.statusText}`, 'error');
+    }
+  } catch (e) {
+    log(`  ✗ trahkino.me: ${e.message}`, 'error');
+    log(`  💡 Попробуйте другой прокси или увеличьте таймаут`, 'warn');
+  }
+}
+
+// ======================================================================
+// [HTTP] Загрузка с прокси, повторными попытками и фоллбэком
+// ======================================================================
+
+async function fetchPage(url, charset) {
+  const proxy = getSelectedProxy();
+  const timeout = parseInt(document.getElementById('timeout').value) * 1000;
+
+  // Попытка 1: выбранный прокси
+  try {
+    const result = await doFetch(proxy.buildUrl(url), timeout, proxy.headers, charset);
+    return { html: result, proxy: proxy.name, error: null };
+  } catch (e1) {
+    log(`  ⚠ ${proxy.name} не сработал: ${e1.message}`, 'warn');
+
+    // Попытка 2: фоллбэк на другой прокси
+    const fallbackKeys = Object.keys(PROXIES).filter(k =>
+      k !== 'none' && k !== 'custom' && k !== document.getElementById('proxySelect').value
+    );
+
+    for (const key of fallbackKeys) {
+      const fb = PROXIES[key];
+      try {
+        log(`  🔄 Пробуем фоллбэк: ${fb.name}...`, 'dim');
+        const result = await doFetch(fb.buildUrl(url), timeout, fb.headers, charset);
+        // Проверяем что это реально HTML
+        if (result.length > 500 && (result.includes('<') || result.includes('{'))) {
+          log(`  ✓ Фоллбэк ${fb.name} сработал!`, 'success');
+          return { html: result, proxy: fb.name, error: null };
+        }
+      } catch (e2) {
+        // продолжаем
+      }
+    }
+
+    return { html: null, proxy: null, error: e1.message };
+  }
+}
+
+async function doFetch(fullUrl, timeout, headers, charset) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeout);
+
+  try {
+    const resp = await fetch(fullUrl, {
+      signal: controller.signal,
+      headers: Object.assign({}, headers || {})
+    });
+    clearTimeout(timer);
+
+    if (!resp.ok) {
+      throw new Error(`HTTP ${resp.status} ${resp.statusText}`);
+    }
+
+    if (charset && !/^utf-?8$/i.test(charset)) {
+      const buf = await resp.arrayBuffer();
+      return new TextDecoder(charset).decode(buf);
+    }
+    return await resp.text();
+  } catch (e) {
+    clearTimeout(timer);
+    if (e.name === 'AbortError') throw new Error('Таймаут (' + (timeout/1000) + 'с)');
+    throw e;
+  }
+}
+
+// ======================================================================
+// [LOG] Утилиты логирования
+// ======================================================================
+
+function log(msg, cls, tag) {
+  cls = cls || '';
+  tag = tag || '';
   const time = new Date().toLocaleTimeString();
   const entry = document.createElement('div');
   entry.className = 'log-entry ' + cls;
   let tagHtml = '';
   if (tag) {
-    const tagCls = tag === 'PASS' ? 'pass' : tag === 'FAIL' ? 'fail' : tag === 'SKIP' ? 'skip' : tag === 'TEST' ? 'test' : 'step';
-    tagHtml = `<span class="tag ${tagCls}">${tag}</span>`;
+    const tc = ({PASS:'pass',FAIL:'fail',SKIP:'skip',TEST:'test',STEP:'step'})[tag] || 'step';
+    tagHtml = `<span class="tag ${tc}">${tag}</span>`;
   }
   entry.innerHTML = `<span class="timestamp">${time}</span>${tagHtml}${msg}`;
-  LOG.appendChild(entry);
-  LOG.scrollTop = LOG.scrollHeight;
+  LOG_EL.appendChild(entry);
+  LOG_EL.scrollTop = LOG_EL.scrollHeight;
   logEntries.push({ time, msg, cls, tag });
 }
 
 function clearLog() {
-  LOG.innerHTML = '';
-  CARDS.innerHTML = '';
-  VIDEO_AREA.innerHTML = '';
-  REPORT.innerHTML = '';
+  LOG_EL.innerHTML = '';
+  CARDS_EL.innerHTML = '';
+  VIDEO_EL.innerHTML = '';
+  REPORT_EL.innerHTML = '';
   logEntries = [];
   testResults = { total: 0, pass: 0, fail: 0, warn: 0, details: [] };
   document.getElementById('summary').style.display = 'none';
@@ -211,40 +393,33 @@ function clearLog() {
 }
 
 function updateSummary() {
-  document.getElementById('summary').style.display = 'flex';
+  const s = document.getElementById('summary');
+  s.style.display = 'flex';
   document.getElementById('sumTotal').textContent = testResults.total;
   document.getElementById('sumPass').textContent = testResults.pass;
   document.getElementById('sumFail').textContent = testResults.fail;
   document.getElementById('sumWarn').textContent = testResults.warn;
 }
 
-function updateProgress(current, total) {
-  const pct = Math.round((current / total) * 100);
-  document.getElementById('progressFill').style.width = pct + '%';
+function updateProgress(cur, tot) {
+  document.getElementById('progressFill').style.width = Math.round(cur/tot*100) + '%';
 }
 
 function switchTab(name) {
-  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-  document.querySelector(`.tab[data-tab="${name}"]`).classList.add('active');
-  ['log', 'cards', 'video', 'report'].forEach(id => {
-    document.getElementById('tab-' + id).classList.toggle('hidden', id !== name);
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
+  ['log','cards','video','report'].forEach(id => {
+    document.getElementById('tab-'+id).classList.toggle('hidden', id !== name);
   });
 }
 
 function exportLog() {
-  let text = 'AdultJS Debug Report\n' + '='.repeat(60) + '\n';
-  text += `Date: ${new Date().toISOString()}\n`;
-  text += `Total: ${testResults.total} | Pass: ${testResults.pass} | Fail: ${testResults.fail} | Warn: ${testResults.warn}\n\n`;
+  let t = 'AdultJS Debug Report\n' + '='.repeat(60) + '\n';
+  t += `Date: ${new Date().toISOString()}\n`;
+  t += `Total: ${testResults.total} | Pass: ${testResults.pass} | Fail: ${testResults.fail} | Warn: ${testResults.warn}\n\n`;
   testResults.details.forEach(d => {
-    text += `[${d.status}] ${d.site}\n`;
-    text += `  Listing: ${d.listing || 'N/A'}\n`;
-    text += `  Cards: ${d.cards || 'N/A'}\n`;
-    text += `  Video URL: ${d.videoUrl || 'N/A'}\n`;
-    text += `  Stream: ${d.stream || 'N/A'}\n`;
-    text += `  Error: ${d.error || 'none'}\n\n`;
+    t += `[${d.status}] ${d.site}\n  List: ${d.listing||'—'}\n  Cards: ${d.cards||'—'}\n  Video: ${d.videoUrl||'—'}\n  Stream: ${d.stream||'—'}\n  Error: ${d.error||'none'}\n\n`;
   });
-  logEntries.forEach(e => { text += `[${e.time}] ${e.tag ? '['+e.tag+'] ' : ''}${e.msg.replace(/<[^>]+>/g, '')}\n`; });
-  const blob = new Blob([text], { type: 'text/plain' });
+  const blob = new Blob([t], {type:'text/plain'});
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
   a.download = 'adultjs-debug-' + Date.now() + '.txt';
@@ -252,538 +427,605 @@ function exportLog() {
 }
 
 // ======================================================================
-// [UTIL] HTTP с CORS-прокси
+// [PARSE] XPath парсинг карточек из HTML
 // ======================================================================
 
-async function fetchWithProxy(url, charset = null) {
-  const proxy = document.getElementById('proxySelect').value;
-  const timeout = parseInt(document.getElementById('timeout').value) * 1000;
-  const fullUrl = proxy ? proxy + encodeURIComponent(url) : url;
-  
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeout);
-  
-  try {
-    const resp = await fetch(fullUrl, { 
-      signal: controller.signal,
-      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }
-    });
-    clearTimeout(timer);
-    
-    if (!resp.ok) throw new Error(`HTTP ${resp.status} ${resp.statusText}`);
-    
-    if (charset && charset !== 'utf-8' && charset !== 'UTF-8') {
-      const buf = await resp.arrayBuffer();
-      return new TextDecoder(charset).decode(buf);
+function parseCardsXPath(html, site) {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(html, 'text/html');
+
+  // Поиск карточек по XPath
+  const snap = doc.evaluate(site.cardXpath, doc, null, XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null);
+  const total = snap.snapshotLength;
+  const cards = [];
+
+  for (let i = 0; i < Math.min(total, 5); i++) {
+    const node = snap.snapshotItem(i);
+    const card = {};
+
+    // Название
+    if (site.titleXpath) {
+      const tn = doc.evaluate(site.titleXpath, node, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+      card.title = tn ? tn.textContent.trim() : '';
     }
-    return await resp.text();
-  } catch (e) {
-    clearTimeout(timer);
-    throw e;
+    if (!card.title) {
+      // Фоллбэк: ищем разными способами
+      const el = node.querySelector('.title, [class*="title"], p, h2, h3, strong');
+      card.title = el ? el.textContent.trim() : '';
+    }
+    if (!card.title) {
+      const a = node.querySelector('a[title]');
+      card.title = a ? a.getAttribute('title') : '';
+    }
+
+    // Ссылка
+    const linkEl = node.querySelector('a[href]');
+    card.href = linkEl ? linkEl.getAttribute('href') : '';
+    if (card.href && !card.href.startsWith('http')) {
+      card.href = site.host.replace(/\/+$/, '') + (card.href.startsWith('/') ? '' : '/') + card.href;
+    }
+
+    // Картинка — перебираем атрибуты
+    const imgEl = node.querySelector('img');
+    if (imgEl) {
+      const imgAttrs = site.imgAttrs || ['data-original', 'data-src', 'data-lazy-src', 'data-thumb_url', 'srcset', 'src'];
+      for (const attr of imgAttrs) {
+        const val = imgEl.getAttribute(attr);
+        if (val && val.trim() && !val.startsWith('data:')) {
+          card.img = val.trim().split(',')[0].trim().split(' ')[0]; // srcset: берём первый
+          break;
+        }
+      }
+      if (card.img && !card.img.startsWith('http')) {
+        if (card.img.startsWith('//')) card.img = 'https:' + card.img;
+        else if (card.img.startsWith('/')) card.img = site.host + card.img;
+      }
+    }
+
+    // Длительность
+    if (site.durationXpath) {
+      const dn = doc.evaluate(site.durationXpath, node, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+      card.duration = dn ? dn.textContent.trim() : '';
+    }
+    if (!card.duration) {
+      const durEl = node.querySelector('.duration, [class*="duration"], .time, [class*="time"], span');
+      card.duration = durEl ? durEl.textContent.trim().replace(/\s+/g, ' ') : '';
+    }
+
+    cards.push(card);
   }
+
+  return { total, cards };
 }
 
 // ======================================================================
-// [CORE] Определения всех источников для тестирования
+// [PARSE] Regex парсинг карточек (встроенные парсеры)
 // ======================================================================
 
-function getSiteDefinitions() {
+function parseCardsRegex(html, site) {
+  const rx = new RegExp(site.cardPattern.source, 'g');
+  let count = 0;
+  let m;
+  while ((m = rx.exec(html)) !== null) count++;
+
+  // Попробуем найти первую ссылку на видео
+  let firstHref = null;
+  const linkRx = /href="(\/?video[^"]*?)"/;
+  const linkMatch = html.match(linkRx);
+  if (linkMatch) {
+    firstHref = linkMatch[1];
+    if (!firstHref.startsWith('http')) firstHref = site.host + (firstHref.startsWith('/') ? '' : '/') + firstHref;
+  }
+
+  return { total: count, cards: [], firstHref };
+}
+
+// ======================================================================
+// [PARSE] Извлечение видео-потоков
+// ======================================================================
+
+function extractStreams(html, site) {
+  const streams = {};
+  let found = false;
+
+  // 1. Основной паттерн
+  if (site.videoPattern) {
+    const m = html.match(site.videoPattern);
+    if (m && (m[1] || m[0])) {
+      streams.main = m[1] || m[0];
+      found = true;
+    }
+  }
+
+  // 2. nodeFile (Xhamster, PornOne и др.)
+  if (site.videoNodeFile) {
+    try {
+      const doc = new DOMParser().parseFromString(html, 'text/html');
+      const n = doc.evaluate(site.videoNodeFile, doc, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+      if (n) {
+        const val = n.getAttribute('href') || n.getAttribute('content') || n.getAttribute('src');
+        if (val) { streams.nodeFile = val; found = true; }
+      }
+    } catch(e) {}
+  }
+
+  // 3. Альтернативные паттерны
+  if (site.altVideoPatterns) {
+    site.altVideoPatterns.forEach(alt => {
+      const m = html.match(alt.regex);
+      if (m) {
+        streams['alt_' + alt.name] = m[1] || m[0];
+        found = true;
+      }
+    });
+  }
+
+  // 4. Общий поиск MP4/M3U8
+  const mp4All = html.match(/https?:\/\/[^\s'"<>]+\.mp4[^\s'"<>]*/g) || [];
+  const mp4Real = mp4All.filter(u => !u.includes('preview') && !u.includes('screenshot') && !u.includes('thumb'));
+  const m3u8s = html.match(/https?:\/\/[^\s'"<>]+\.m3u8[^\s'"<>]*/g) || [];
+
+  streams.mp4_total = mp4All.length;
+  streams.mp4_real = mp4Real;
+  streams.m3u8 = m3u8s;
+
+  if (!found && (mp4Real.length || m3u8s.length)) found = true;
+
+  return { found, streams };
+}
+
+// ======================================================================
+// [SITES] Определения сайтов
+// ======================================================================
+
+function getAllSites() {
   return [
     // === Встроенные парсеры ===
-    {
-      name: 'BongaCams',
-      type: 'builtin',
-      listUrl: 'https://ukr.bongacams.com/',
-      cardPattern: /data-chathost="([^"]+)"/,
-      videoTest: null, // live stream, не тестируем файл
-      notes: 'Live webcams — карточки парсятся, стримы HLS'
-    },
-    {
-      name: 'XVideos',
-      type: 'builtin',
-      listUrl: 'https://www.xv-ru.com/new/1',
-      cardPattern: /<div id="video/,
-      titlePattern: /title="([^"]+)"/,
-      videoPageUrl: null, // будет взят из первой карточки
-      streamPattern: /html5player\.setVideoHLS\('([^']+)'\)/,
-      notes: 'HLS streams'
-    },
-    {
-      name: 'XNXX',
-      type: 'builtin',
-      listUrl: 'https://www.xnxx-ru.com/best/2025-01/1',
-      cardPattern: /<div id="video_/,
-      streamPattern: /html5player\.setVideoHLS\('([^']+)'\)/,
-      notes: 'HLS streams'
-    },
-    {
-      name: 'SpankBang',
-      type: 'builtin',
-      listUrl: 'https://ru.spankbang.com/new_videos/1/',
-      cardPattern: /class="video-item responsive-page"/,
-      streamPattern: /'([0-9]+)(p|k)': ?\['(https?:\/\/[^']+)'/,
-      notes: 'Direct MP4 streams'
-    },
-    {
-      name: 'Chaturbate',
-      type: 'builtin',
-      listUrl: 'https://chaturbate.com/api/ts/roomlist/room-list/?enable_recommendations=false&limit=10',
-      cardPattern: /"username":"([^"]+)"/,
-      notes: 'API JSON + HLS'
-    },
-    {
-      name: 'Eporner',
-      type: 'builtin',
-      listUrl: 'https://www.eporner.com/',
-      cardPattern: /<div class="mb/,
-      notes: 'XHR API for streams'
-    },
+    { name:'BongaCams', type:'builtin', host:'https://ukr.bongacams.com',
+      listUri:'', cardPattern:/data-chathost="([^"]+)"/, notes:'Live webcams HLS' },
 
-    // === NextHub сайты (из массива P) ===
-    ...getNextHubSites()
-  ];
-}
+    { name:'XVideos', type:'builtin', host:'https://www.xv-ru.com',
+      listUri:'new/1', cardPattern:/<div id="video/, videoPattern:/html5player\.setVideoHLS\('([^']+)'\)/,
+      notes:'HLS streams' },
 
-function getNextHubSites() {
-  // Определяем NextHub сайты с их параметрами для тестирования
-  const sites = [
-    { name: 'PornHub', host: 'https://rt.pornhub.com', listUri: 'video?page=1', 
-      cardXpath: "//li[contains(@class,'videoblock')]", videoPattern: /"videoUrl":"([^"]+)"/ },
-    
-    { name: 'Xhamster', host: 'https://ru.xhamster.com', listUri: '', 
-      cardXpath: "//div[contains(@class,'thumb-list__item')]", videoNodeFile: "//link[@rel='preload']" },
-    
-    { name: 'Lenkino', host: 'https://wes.lenkino.adult', listUri: 'page/1',
-      cardXpath: "//div[@class='item']", videoPattern: /video_alt_url:[\t ]+'([^']+)'/ },
-    
-    { name: 'Lenporno', host: 'https://pepa.lenporno.xyz', listUri: 'new-update/1/',
-      cardXpath: "//div[@class='innercont']", videoPattern: /(https?:\/\/[^\t" ]+_720p.mp4)/ },
-    
-    { name: '24video', host: 'https://sex.24videos.space', listUri: 'page-1/',
-      cardXpath: "//div[@class='item video-block']" },
-    
-    { name: 'BigBoss', host: 'https://bigboss.video', listUri: 'latest/1/',
-      cardXpath: "//div[contains(@class,'main__ct-item')]" },
-    
-    { name: 'Ebasos', host: 'https://wel.ebasos.club', listUri: 'latest-updates/1/',
-      cardXpath: "//div[contains(@class, 'item')]" },
-    
-    { name: 'Ebun', host: 'https://www1.ebun.tv', listUri: 'latest-updates/1/',
-      cardXpath: "//div[contains(@class, 'item th-item')]" },
-    
-    { name: 'JopaOnline', host: 'https://jopaonline.mobi', listUri: '1',
-      cardXpath: "//div[@class='th']" },
-    
-    { name: 'NoodleMagazine', host: 'https://adult.noodlemagazine.com', listUri: 'now?p=1',
-      cardXpath: "//div[contains(@class, 'item')]", videoPattern: /"file":"([^"]+)"/ },
-    
-    { name: 'Porno365', host: 'https://porno365x.me', listUri: '1/',
-      cardXpath: "//li[contains(@class, 'trailer')]", videoPattern: /file:[\t ]+"([^"]+)"/ },
-    
-    { name: 'Porno666', host: 'https://wwwp.porno666.news', listUri: 'latest-updates/1/',
-      cardXpath: "//div[@class='item trailer']" },
-    
-    { name: 'Pornk', host: 'https://ps.pornk.top', listUri: 'latest-updates/1/',
-      cardXpath: "//a[contains(@class, 'preview')]" },
-    
-    { name: 'Porntrex', host: 'https://www.porntrex.com', listUri: 'latest-updates/1/',
-      cardXpath: "//div[contains(@class,'video-preview-screen')]" },
-    
-    { name: 'GayPornTube', host: 'https://www.gayporntube.com', listUri: 'page1.html',
-      cardXpath: "//div[contains(@class,'item') and contains(@class,'item-col')]" },
-    
-    { name: 'Sosushka', host: 'https://gi.sosushka.vip', listUri: 'new/page1/',
-      cardXpath: "//div[@class='thumb']" },
-    
-    { name: 'PornoBriz', host: 'https://pornobriz.com', listUri: 'new/page1/',
-      cardXpath: "//div[contains(@class, 'thumb_main')]" },
-    
-    { name: 'Youjizz', host: 'https://www.youjizz.com', listUri: 'newest-clips/1.html',
-      cardXpath: "//div[@class='video-thumb']" },
-    
-    { name: 'Vporno', host: 'https://vv.vporno.video', listUri: 'page/1',
-      cardXpath: "//div[@class='col-xs-6 col-sm-6 col-md-4 col-lg-4']" },
-    
-    { name: 'Pornobolt', host: 'https://ru.pornobolt.li', listUri: '1/',
-      cardXpath: "//div[@class='media-obj widethumb']" },
-    
-    { name: 'PornoAkt', host: 'https://a.pornoakt.club', listUri: 'page/1/',
-      cardXpath: "//article[contains(@class, 'shortstory')]" },
-    
-    { name: 'PornOne', host: 'https://pornone.com', listUri: '1/',
-      cardXpath: "//a[@class='popbop vidLinkFX  videocard linkage']" },
-    
-    { name: 'Rusvideos', host: 'https://sex.rusvideos.art', listUri: '1/',
-      cardXpath: "//div[@class='thumb wide']" },
-    
-    { name: 'Veporn', host: 'https://veporn.com', listUri: 'page/1/',
-      cardXpath: "//article[contains(@class, 'loop-post vdeo')]" },
-    
-    { name: 'Vtrahe', host: 'https://site.vtrahehd.tv', listUri: '', charset: 'windows-1251',
-      cardXpath: "//div[@class='innercont']" },
-    
-    { name: 'VtraheTV', host: 'https://my.vtrahe.work', listUri: 'page/1/',
-      cardXpath: "//div[@class='innercont']" },
+    { name:'XNXX', type:'builtin', host:'https://www.xnxx-ru.com',
+      listUri:'best/2025-01/1', cardPattern:/<div id="video_/,
+      videoPattern:/html5player\.setVideoHLS\('([^']+)'\)/, notes:'HLS streams' },
 
-    // [DEV#1] TrahKino
-    { name: 'TrahKino', host: 'https://trahkino.me', listUri: '',
-      cardXpath: "//div[contains(@class,'item')]",
-      imgAttr: 'data-original',
-      titleXpath: ".//strong[contains(@class,'title')]",
-      durationXpath: ".//div[contains(@class,'duration')]",
-      videoPattern: /function\/0\/(https:\/\/[^/]+\/get_file\/[^']+_(?:1080|720|480|360)p\.mp4)\//,
-      // [DEV#1] Альтернативные паттерны для отладки
+    { name:'SpankBang', type:'builtin', host:'https://ru.spankbang.com',
+      listUri:'new_videos/1/', cardPattern:/class="video-item/,
+      videoPattern:/'([0-9]+)(p|k)': ?\['(https?:\/\/[^']+)'/,
       altVideoPatterns: [
-        { name: 'video_url', regex: /video_url:\s*'function\/0\/(https?:\/\/[^']+)\// },
-        { name: 'video_alt_url', regex: /video_alt_url:\s*'function\/0\/(https?:\/\/[^']+)\// },
-        { name: 'video_alt_url2', regex: /video_alt_url2:\s*'function\/0\/(https?:\/\/[^']+)\// },
-        { name: 'video_alt_url3', regex: /video_alt_url3:\s*'function\/0\/(https?:\/\/[^']+)\// },
-        { name: 'video_alt_url4', regex: /video_alt_url4:\s*'function\/0\/(https?:\/\/[^']+)\// },
-        { name: 'any_mp4', regex: /https:\/\/[^'"]+\.mp4/g },
-        { name: 'any_m3u8', regex: /https:\/\/[^'"]+\.m3u8/g },
+        { name:'stream_data', regex:/stream_data\s*=\s*(\{[^}]+\})/ },
+        { name:'m3u8', regex:/(https?:\/\/[^\s'"]+\.m3u8[^\s'"]*)/g },
+        { name:'mp4_src', regex:/'[0-9]+p':\s*\['(https?:\/\/[^']+)'\]/g },
       ],
-      notes: '[DEV#1] KVS CMS, function/0/URL/ format'
+      notes:'Может менять домен/структуру. Direct MP4.' },
+
+    { name:'Chaturbate', type:'builtin', host:'https://chaturbate.com',
+      listUri:'api/ts/roomlist/room-list/?enable_recommendations=false&limit=10',
+      cardPattern:/"username":"([^"]+)"/, notes:'API JSON + HLS' },
+
+    { name:'Eporner', type:'builtin', host:'https://www.eporner.com',
+      listUri:'', cardPattern:/<div class="mb/, notes:'XHR API streams' },
+
+    // === NextHub сайты ===
+    { name:'PornHub', host:'https://rt.pornhub.com', listUri:'video?page=1',
+      cardXpath:"//li[contains(@class,'videoblock')]",
+      videoPattern:/"videoUrl":"([^"]+)","quality":"[0-9]+"/ },
+
+    { name:'Xhamster', host:'https://ru.xhamster.com', listUri:'',
+      cardXpath:"//div[contains(@class,'thumb-list__item')]",
+      videoNodeFile:"//link[@rel='preload']" },
+
+    { name:'Lenkino', host:'https://wes.lenkino.adult', listUri:'page/1',
+      cardXpath:"//div[@class='item']",
+      videoPattern:/video_alt_url:[\t ]+'([^']+)'/ },
+
+    { name:'Lenporno', host:'https://pepa.lenporno.xyz', listUri:'new-update/1/',
+      cardXpath:"//div[@class='innercont']",
+      videoPattern:/(https?:\/\/[^\t" ]+_720p\.mp4)/ },
+
+    { name:'24video', host:'https://sex.24videos.space', listUri:'page-1/',
+      cardXpath:"//div[@class='item video-block']",
+      imgAttrs:['data-original','src'] },
+
+    { name:'BigBoss', host:'https://bigboss.video', listUri:'latest/1/',
+      cardXpath:"//div[contains(@class,'main__ct-item')]",
+      imgAttrs:['data-src','src'] },
+
+    { name:'Ebasos', host:'https://wel.ebasos.club', listUri:'latest-updates/1/',
+      cardXpath:"//div[contains(@class,'item')]",
+      imgAttrs:['data-original','src'],
+      videoPattern:/video_alt_url:[\t ]+'([^']+)'/ },
+
+    { name:'Ebun', host:'https://www1.ebun.tv', listUri:'latest-updates/1/',
+      cardXpath:"//div[contains(@class,'item th-item')]",
+      imgAttrs:['data-src','src'],
+      videoPattern:/video_alt_url:[\t ]+'([^']+)'/ },
+
+    { name:'JopaOnline', host:'https://jopaonline.mobi', listUri:'1',
+      cardXpath:"//div[@class='th']",
+      videoPattern:/video_alt_url3:[\t ]+'([^']+)'/ },
+
+    { name:'NoodleMagazine', host:'https://adult.noodlemagazine.com', listUri:'now?p=1',
+      cardXpath:"//div[contains(@class,'item')]",
+      imgAttrs:['data-src','src'],
+      videoPattern:/"file":"([^"]+)"/ },
+
+    { name:'Porno365', host:'https://porno365x.me', listUri:'1/',
+      cardXpath:"//li[contains(@class,'trailer')]",
+      videoPattern:/file:[\t ]+"([^"]+)"/ },
+
+    { name:'Porno666', host:'https://wwwp.porno666.news', listUri:'latest-updates/1/',
+      cardXpath:"//div[@class='item trailer']",
+      imgAttrs:['data-original','src'],
+      videoPattern:/video_alt_url3:[\t ]+'([^']+)'/ },
+
+    { name:'Pornk', host:'https://ps.pornk.top', listUri:'latest-updates/1/',
+      cardXpath:"//a[contains(@class,'preview')]" },
+
+    { name:'PornoBriz', host:'https://pornobriz.com', listUri:'new/page1/',
+      cardXpath:"//div[contains(@class,'thumb_main')]",
+      imgAttrs:['data-original','src'] },
+
+    { name:'Sosushka', host:'https://gi.sosushka.vip', listUri:'new/page1/',
+      cardXpath:"//div[@class='thumb']",
+      imgAttrs:['data-src','src'] },
+
+    { name:'Youjizz', host:'https://www.youjizz.com', listUri:'newest-clips/1.html',
+      cardXpath:"//div[@class='video-thumb']",
+      imgAttrs:['data-original','src'] },
+
+    { name:'Vporno', host:'https://vv.vporno.video', listUri:'page/1',
+      cardXpath:"//div[@class='col-xs-6 col-sm-6 col-md-4 col-lg-4']" },
+
+    { name:'Pornobolt', host:'https://ru.pornobolt.li', listUri:'1/',
+      cardXpath:"//div[@class='media-obj widethumb']",
+      imgAttrs:['data-original','src'],
+      videoNodeFile:"//meta[@property='ya:ovs:content_url']" },
+
+    { name:'PornoAkt', host:'https://a.pornoakt.club', listUri:'page/1/',
+      cardXpath:"//article[contains(@class,'shortstory')]",
+      videoNodeFile:"//li[@data-type='m4v']" },
+
+    { name:'PornOne', host:'https://pornone.com', listUri:'1/',
+      cardXpath:"//a[contains(@class,'videocard')]",
+      imgAttrs:['data-src','src'],
+      videoNodeFile:"//source" },
+
+    { name:'Rusvideos', host:'https://sex.rusvideos.art', listUri:'1/',
+      cardXpath:"//div[@class='thumb wide']",
+      imgAttrs:['data-original','src'],
+      videoNodeFile:"//meta[@property='ya:ovs:content_url']" },
+
+    { name:'Veporn', host:'https://veporn.com', listUri:'page/1/',
+      cardXpath:"//article[contains(@class,'loop-post')]",
+      videoNodeFile:"//source" },
+
+    { name:'Porntrex', host:'https://www.porntrex.com', listUri:'latest-updates/1/',
+      cardXpath:"//div[contains(@class,'video-preview-screen')]",
+      imgAttrs:['data-src','src'],
+      videoPattern:/'(https?:\/\/[^/]+\/get_file\/[^']+_720p\.mp4\/)'/  },
+
+    { name:'GayPornTube', host:'https://www.gayporntube.com', listUri:'page1.html',
+      cardXpath:"//div[contains(@class,'item') and contains(@class,'item-col')]",
+      imgAttrs:['data-src','src'],
+      videoPattern:/src="([^"]+)" type="video\/mp4"/ },
+
+    { name:'Vtrahe', host:'https://site.vtrahehd.tv', listUri:'', charset:'windows-1251',
+      cardXpath:"//div[@class='innercont']" },
+
+    { name:'VtraheTV', host:'https://my.vtrahe.work', listUri:'page/1/',
+      cardXpath:"//div[@class='innercont']" },
+
+    // ─── [DEV#1] TrahKino ───
+    { name:'TrahKino', host:'https://trahkino.me', listUri:'',
+      cardXpath:"//div[contains(@class,'item')]",
+      titleXpath:".//strong[contains(@class,'title')]",
+      durationXpath:".//div[contains(@class,'duration')]",
+      imgAttrs:['data-original','data-src','src'],
+      // Основной паттерн из плагина
+      videoPattern:/function\/0\/(https:\/\/[^']+_720p\.mp4)\//,
+      // Альтернативные для глубокой диагностики
+      altVideoPatterns: [
+        { name:'video_url (240p)', regex:/video_url:\s*'function\/0\/(https?:\/\/[^']+)\/'/ },
+        { name:'video_alt_url (360p)', regex:/video_alt_url:\s*'function\/0\/(https?:\/\/[^']+)\/'/ },
+        { name:'video_alt_url2 (480p)', regex:/video_alt_url2:\s*'function\/0\/(https?:\/\/[^']+)\/'/ },
+        { name:'video_alt_url3 (720p)', regex:/video_alt_url3:\s*'function\/0\/(https?:\/\/[^']+)\/'/ },
+        { name:'video_alt_url4 (1080p)', regex:/video_alt_url4:\s*'function\/0\/(https?:\/\/[^']+)\/'/ },
+        { name:'raw video_url', regex:/video_url:\s*'([^']+)'/ },
+        { name:'raw video_alt_url3', regex:/video_alt_url3:\s*'([^']+)'/ },
+        { name:'player config block', regex:/\{\s*video_id:\s*'(\d+)'[^}]{50,500}\}/ },
+      ],
+      notes:'[DEV#1] KVS CMS. URL формат: function/0/URL/. Если видео не играет — проверить формат URL.'
     },
   ];
-
-  return sites.map(s => ({ ...s, type: 'nexthub' }));
 }
 
 // ======================================================================
-// [CORE] Тест одного сайта
+// [CORE] Тестирование одного сайта
 // ======================================================================
 
 async function testSite(site) {
-  const detail = { site: site.name, status: 'UNKNOWN', listing: null, cards: null, videoUrl: null, stream: null, error: null };
-  
-  log(`<b>═══ ${site.name} ═══</b> <span style="color:#666">(${site.type})</span>`, 'header', 'TEST');
+  const detail = { site:site.name, status:'UNKNOWN', listing:null, cards:null, videoUrl:null, stream:null, error:null };
+
+  log(`<b>═══ ${site.name} ═══</b> <span style="color:#666">${site.type||'nexthub'} | ${site.host}</span>`, 'header', 'TEST');
   if (site.notes) log(`ℹ️ ${site.notes}`, 'dim');
 
-  // ─── Шаг 1: Загрузка листинга ───
-  log(`Шаг 1: Загрузка листинга...`, 'info', 'STEP');
-  let listUrl = site.listUrl || (site.host + (site.listUri ? '/' + site.listUri : ''));
-  log(`URL: <a href="${listUrl}" target="_blank" style="color:#58a6ff">${listUrl}</a>`, 'dim');
+  // ─── STEP 1: Листинг ───
+  log('Шаг 1: Загрузка листинга', 'info', 'STEP');
+  const listUrl = site.host + (site.listUri ? '/' + site.listUri : '');
+  log(`URL: <a href="${listUrl}" target="_blank">${listUrl}</a>`, 'dim');
 
-  let listHtml;
-  try {
-    listHtml = await fetchWithProxy(listUrl, site.charset);
-    const sizeKb = Math.round(listHtml.length / 1024);
-    log(`✓ Загружено: ${sizeKb} KB`, 'success');
-    detail.listing = `${sizeKb} KB`;
-  } catch (e) {
-    log(`✗ Ошибка загрузки: ${e.message}`, 'error', 'FAIL');
-    detail.listing = 'FAIL: ' + e.message;
+  const listResult = await fetchPage(listUrl, site.charset);
+
+  if (!listResult.html) {
+    log(`✗ Не удалось загрузить: ${listResult.error}`, 'error', 'FAIL');
+    detail.listing = 'FAIL: ' + listResult.error;
+    detail.error = listResult.error;
     detail.status = 'FAIL';
-    detail.error = e.message;
-    testResults.fail++;
-    testResults.total++;
+    testResults.fail++; testResults.total++;
     testResults.details.push(detail);
     updateSummary();
-    return detail;
+    return;
   }
 
-  // ─── Шаг 2: Парсинг карточек ───
-  log(`Шаг 2: Парсинг карточек видео...`, 'info', 'STEP');
-  
-  let cards = [];
+  const kb = Math.round(listResult.html.length / 1024);
+  log(`✓ Загружено: ${kb} KB через ${listResult.proxy}`, 'success');
+  detail.listing = kb + ' KB';
+
+  // Проверяем что это HTML
+  const looksLikeHtml = listResult.html.includes('<') && (listResult.html.includes('html') || listResult.html.includes('div') || listResult.html.includes('body'));
+  if (!looksLikeHtml) {
+    log(`⚠ Ответ не похож на HTML! (может JSON или текст ошибки)`, 'warn');
+    log(`Начало: <code>${listResult.html.substring(0, 200).replace(/</g,'&lt;')}</code>`, 'dim');
+  }
+
+  // ─── STEP 2: Карточки ───
+  log('Шаг 2: Парсинг карточек', 'info', 'STEP');
+
+  let cardTotal = 0;
+  let parsedCards = [];
   let firstVideoUrl = null;
 
   if (site.cardXpath) {
-    // XPath парсинг (NextHub стиль)
-    try {
-      const parser = new DOMParser();
-      const doc = parser.parseFromString(listHtml, 'text/html');
-      const result = doc.evaluate(site.cardXpath, doc, null, XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null);
-      
-      log(`XPath: <code>${site.cardXpath}</code> → найдено: ${result.snapshotLength}`, 
-          result.snapshotLength > 0 ? 'success' : 'error');
-      
-      for (let i = 0; i < Math.min(result.snapshotLength, 5); i++) {
-        const node = result.snapshotItem(i);
-        const card = {};
-        
-        // Название
-        if (site.titleXpath) {
-          const titleNode = doc.evaluate(site.titleXpath, node, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
-          card.title = titleNode ? titleNode.textContent.trim() : '';
-        } else {
-          const titleEl = node.querySelector('a[title]') || node.querySelector('.title') || node.querySelector('p') || node.querySelector('h2, h3');
-          card.title = titleEl ? (titleEl.getAttribute('title') || titleEl.textContent || '').trim() : '';
-        }
-        
-        // Ссылка
-        const linkEl = node.querySelector('a[href]');
-        card.href = linkEl ? linkEl.getAttribute('href') : '';
-        if (card.href && !card.href.startsWith('http')) {
-          card.href = site.host + (card.href.startsWith('/') ? '' : '/') + card.href;
-        }
-        
-        // Картинка
-        const imgEl = node.querySelector('img');
-        if (imgEl) {
-          card.img = imgEl.getAttribute(site.imgAttr || 'data-src') || 
-                     imgEl.getAttribute('data-original') || 
-                     imgEl.getAttribute('src') || '';
-          if (card.img && !card.img.startsWith('http')) {
-            if (card.img.startsWith('//')) card.img = 'https:' + card.img;
-            else card.img = site.host + card.img;
-          }
-        }
-        
-        // Длительность
-        if (site.durationXpath) {
-          const durNode = doc.evaluate(site.durationXpath, node, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
-          card.duration = durNode ? durNode.textContent.trim() : '';
-        } else {
-          const durEl = node.querySelector('.duration, .time, [class*="duration"], [class*="time"]');
-          card.duration = durEl ? durEl.textContent.trim() : '';
-        }
-        
-        cards.push(card);
-        if (!firstVideoUrl && card.href) firstVideoUrl = card.href;
-      }
-      
-      detail.cards = `${result.snapshotLength} найдено`;
-    } catch (e) {
-      log(`✗ Ошибка XPath: ${e.message}`, 'error');
-      detail.cards = 'FAIL: ' + e.message;
-    }
-  } else if (site.cardPattern) {
-    // Regex парсинг (встроенные парсеры)
-    const matches = listHtml.match(new RegExp(site.cardPattern.source, 'g'));
-    const count = matches ? matches.length : 0;
-    log(`Regex: /${site.cardPattern.source}/ → найдено: ${count}`, count > 0 ? 'success' : 'error');
-    detail.cards = count + ' совпадений';
-    
-    // Попробуем найти ссылку на видео
-    const hrefMatch = listHtml.match(/href="(\/video[^"]+)"/);
-    if (hrefMatch) firstVideoUrl = site.host + hrefMatch[1];
-  }
-  
-  // Показать карточки
-  if (cards.length > 0) {
-    log(`✓ Карточки успешно распарсены (${cards.length} превью)`, 'success', 'PASS');
-    cards.forEach((card, i) => {
-      log(`  [${i+1}] "${card.title?.substring(0, 50)}..." | ${card.duration} | <a href="${card.href}" target="_blank">link</a>`, 'dim');
-      
-      // Добавить в таб карточек
-      const cardEl = document.createElement('div');
-      cardEl.className = 'preview-card';
-      cardEl.innerHTML = `
-        <img src="${card.img || ''}" onerror="this.style.background='#444';this.alt='No image'" loading="lazy">
-        <div class="card-info">
-          <div class="card-title" title="${card.title || ''}">${card.title || 'N/A'}</div>
-          <div class="card-duration">${card.duration || '??:??'} — ${site.name}</div>
-          <a class="card-link" href="${card.href || '#'}" target="_blank">${card.href?.substring(0, 40) || 'N/A'}...</a>
-        </div>`;
-      CARDS.appendChild(cardEl);
-    });
-  } else {
-    log(`✗ Карточки не найдены!`, 'error', 'FAIL');
-    
-    // Диагностика
-    log(`  📋 Диагностика HTML (первые 500 символов):`, 'warn');
-    log(`  <code>${listHtml.substring(0, 500).replace(/</g, '&lt;').replace(/>/g, '&gt;')}</code>`, 'dim');
-    
-    // Поиск возможных классов
-    const classes = listHtml.match(/class="[^"]+"/g);
-    if (classes) {
-      const unique = [...new Set(classes.slice(0, 20))];
-      log(`  🔍 Найденные классы: ${unique.join(', ')}`, 'warn');
-    }
-  }
+    const result = parseCardsXPath(listResult.html, site);
+    cardTotal = result.total;
+    parsedCards = result.cards;
+    log(`XPath <code>${site.cardXpath}</code> → ${cardTotal} элементов`, cardTotal > 0 ? 'success' : 'warn');
 
-  // ─── Шаг 3: Загрузка страницы видео ───
-  if (firstVideoUrl) {
-    log(`Шаг 3: Загрузка страницы видео...`, 'info', 'STEP');
-    log(`URL: <a href="${firstVideoUrl}" target="_blank" style="color:#58a6ff">${firstVideoUrl}</a>`, 'dim');
-    
-    let videoHtml;
-    try {
-      videoHtml = await fetchWithProxy(firstVideoUrl, site.charset);
-      const sizeKb = Math.round(videoHtml.length / 1024);
-      log(`✓ Страница видео загружена: ${sizeKb} KB`, 'success');
-      detail.videoUrl = firstVideoUrl;
-    } catch (e) {
-      log(`✗ Ошибка загрузки страницы видео: ${e.message}`, 'error');
-      detail.videoUrl = 'FAIL: ' + e.message;
+    if (parsedCards.length > 0) {
+      parsedCards.forEach((c, i) => {
+        log(`  [${i+1}] "${(c.title||'').substring(0,50)}" | ${c.duration||'—'} | img:${c.img?'✓':'✗'} | <a href="${c.href}" target="_blank">link</a>`, 'dim');
+
+        // Визуальная карточка
+        const el = document.createElement('div');
+        el.className = 'preview-card';
+        el.innerHTML = `
+          <img src="${c.img||''}" onerror="this.style.background='#444'" loading="lazy">
+          <div class="card-info">
+            <div class="card-title">${c.title||'N/A'}</div>
+            <div class="card-duration">${c.duration||'—'} — ${site.name}</div>
+            <a class="card-link" href="${c.href||'#'}" target="_blank">${(c.href||'').substring(0,50)}</a>
+          </div>`;
+        CARDS_EL.appendChild(el);
+      });
+
+      firstVideoUrl = parsedCards.find(c => c.href)?.href;
     }
 
-    // ─── Шаг 4: Извлечение потоков видео ───
-    if (videoHtml) {
-      log(`Шаг 4: Извлечение видео-потоков...`, 'info', 'STEP');
-      
-      let streamFound = false;
-      
-      // Основной паттерн
-      if (site.videoPattern) {
-        const match = videoHtml.match(site.videoPattern);
-        if (match) {
-          const url = match[1] || match[0];
-          log(`✓ ОСНОВНОЙ паттерн: <span class="video-url">${url.substring(0, 120)}...</span>`, 'success', 'PASS');
-          detail.stream = url.substring(0, 200);
-          streamFound = true;
-          
-          // Тест доступности URL
-          await testVideoUrl(url, site.name);
-        } else {
-          log(`✗ Основной паттерн НЕ найден: <code>${site.videoPattern.source.substring(0, 80)}</code>`, 'error');
-        }
-      }
-      
-      // Тест nodeFile (Xhamster и др.)
-      if (site.videoNodeFile && !streamFound) {
+    // Если карточек 0 — диагностика
+    if (cardTotal === 0) {
+      log(`  🔍 Диагностика: ищем возможные контейнеры...`, 'warn');
+      const doc = new DOMParser().parseFromString(listResult.html, 'text/html');
+      const xpathTests = [
+        "//div[contains(@class,'item')]",
+        "//div[contains(@class,'video')]",
+        "//div[contains(@class,'thumb')]",
+        "//article",
+        "//li[contains(@class,'video')]",
+        "//a[contains(@class,'video')]",
+        "//div[contains(@class,'list')]//div",
+      ];
+      xpathTests.forEach(xp => {
         try {
-          const doc = new DOMParser().parseFromString(videoHtml, 'text/html');
-          const node = doc.evaluate(site.videoNodeFile, doc, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
-          if (node) {
-            const href = node.getAttribute('href') || node.getAttribute('content') || node.getAttribute('src');
-            if (href) {
-              log(`✓ nodeFile найден: <span class="video-url">${href.substring(0, 120)}</span>`, 'success', 'PASS');
-              detail.stream = href.substring(0, 200);
-              streamFound = true;
-            }
-          }
+          const r = doc.evaluate(xp, doc, null, XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null);
+          if (r.snapshotLength > 0) log(`  → <code>${xp}</code> = ${r.snapshotLength}`, 'warn');
         } catch(e) {}
-      }
-      
-      // [DEV#1] Альтернативные паттерны для TrahKino и др.
-      if (site.altVideoPatterns) {
-        log(`  🔍 Проверка альтернативных паттернов (${site.altVideoPatterns.length}):`, 'warn');
-        for (const alt of site.altVideoPatterns) {
-          const match = videoHtml.match(alt.regex);
-          if (match) {
-            const found = Array.isArray(match) && match.length > 1 ? match.slice(0, 3) : [match[0]?.substring(0, 150)];
-            log(`  ✓ <b>${alt.name}</b>: ${found.map(f => `<span class="video-url">${f?.substring(0, 100)}</span>`).join(' | ')}`, 'success');
-            if (!streamFound) {
-              detail.stream = (match[1] || match[0])?.substring(0, 200);
-              streamFound = true;
-            }
-          } else {
-            log(`  ✗ ${alt.name}: не найден`, 'dim');
-          }
-        }
-      }
-      
-      // Общий поиск MP4/M3U8 URL если ничего не нашли
-      if (!streamFound) {
-        log(`  🔍 Поиск любых медиа-URL в HTML...`, 'warn');
-        
-        const mp4s = videoHtml.match(/https?:\/\/[^\s'"<>]+\.mp4[^\s'"<>]*/g);
-        const m3u8s = videoHtml.match(/https?:\/\/[^\s'"<>]+\.m3u8[^\s'"<>]*/g);
-        
-        if (mp4s && mp4s.length) {
-          // Фильтруем preview
-          const real = mp4s.filter(u => !u.includes('preview') && !u.includes('screenshot'));
-          log(`  MP4 URLs найдено: ${mp4s.length} (реальных: ${real.length})`, real.length ? 'success' : 'warn');
-          real.slice(0, 5).forEach(u => log(`    → <span class="video-url">${u.substring(0, 120)}</span>`, 'dim'));
-          if (real.length) { detail.stream = real[0].substring(0, 200); streamFound = true; }
-        }
-        
-        if (m3u8s && m3u8s.length) {
-          log(`  M3U8 URLs найдено: ${m3u8s.length}`, 'success');
-          m3u8s.slice(0, 3).forEach(u => log(`    → <span class="video-url">${u.substring(0, 120)}</span>`, 'dim'));
-          if (!streamFound && m3u8s.length) { detail.stream = m3u8s[0].substring(0, 200); streamFound = true; }
-        }
-        
-        if (!mp4s && !m3u8s) {
-          log(`  ✗ Медиа-URL не найдены в HTML!`, 'error');
-          
-          // Дамп JS-переменных плеера
-          log(`  📋 Поиск конфигурации плеера:`, 'warn');
-          const playerConfigs = [
-            /flashvars\s*=\s*\{([^}]{100,500})\}/,
-            /video_url[:\s]*['"]([^'"]+)/,
-            /var\s+player\s*=\s*\{([^}]{50,500})\}/,
-            /sources:\s*\[([^\]]{50,500})\]/,
-            /file:\s*['"]([^'"]+)/
-          ];
-          playerConfigs.forEach(rx => {
-            const m = videoHtml.match(rx);
-            if (m) log(`    Найдено: <code>${m[0].substring(0, 200).replace(/</g, '&lt;')}</code>`, 'warn');
-          });
-        }
-      }
-      
-      if (!streamFound) {
-        detail.stream = 'NOT FOUND';
-      }
+      });
     }
-  } else {
-    log(`⚠ Шаг 3-4 пропущен: нет ссылки на видео`, 'warn', 'SKIP');
+
+    detail.cards = cardTotal + ' найдено';
+
+  } else if (site.cardPattern) {
+    const result = parseCardsRegex(listResult.html, site);
+    cardTotal = result.total;
+    firstVideoUrl = result.firstHref;
+    log(`Regex → ${cardTotal} совпадений`, cardTotal > 0 ? 'success' : 'warn');
+    detail.cards = cardTotal + ' regex matches';
   }
 
-  // ─── Итог ───
-  const cardOk = cards.length > 0 || (detail.cards && !detail.cards.startsWith('FAIL'));
-  const streamOk = detail.stream && detail.stream !== 'NOT FOUND' && !detail.stream.startsWith('FAIL');
-  
-  if (cardOk && streamOk) {
-    detail.status = 'PASS';
-    testResults.pass++;
-    log(`✅ ${site.name}: ВСЕ ТЕСТЫ ПРОЙДЕНЫ`, 'success', 'PASS');
-  } else if (cardOk || streamOk) {
-    detail.status = 'WARN';
-    testResults.warn++;
-    log(`⚠️ ${site.name}: ЧАСТИЧНО (карточки: ${cardOk ? '✓' : '✗'}, видео: ${streamOk ? '✓' : '✗'})`, 'warn', 'FAIL');
+  if (cardTotal > 0) {
+    log(`✓ Карточки: ${cardTotal}`, 'success', 'PASS');
   } else {
-    detail.status = 'FAIL';
-    testResults.fail++;
+    log(`✗ Карточки не найдены`, 'error', 'FAIL');
+  }
+
+  // ─── STEP 3: Страница видео ───
+  if (!firstVideoUrl) {
+    log('Шаг 3: Пропущен — нет ссылки на видео', 'warn', 'SKIP');
+  } else {
+    log('Шаг 3: Загрузка страницы видео', 'info', 'STEP');
+    log(`URL: <a href="${firstVideoUrl}" target="_blank">${firstVideoUrl}</a>`, 'dim');
+    detail.videoUrl = firstVideoUrl;
+
+    const videoResult = await fetchPage(firstVideoUrl, site.charset);
+
+    if (!videoResult.html) {
+      log(`✗ Не удалось загрузить видео-страницу: ${videoResult.error}`, 'error');
+    } else {
+      const vkb = Math.round(videoResult.html.length / 1024);
+      log(`✓ Видео-страница: ${vkb} KB через ${videoResult.proxy}`, 'success');
+
+      // ─── STEP 4: Потоки ───
+      log('Шаг 4: Извлечение видео-потоков', 'info', 'STEP');
+
+      const streamResult = extractStreams(videoResult.html, site);
+
+      if (streamResult.streams.main) {
+        log(`✓ Основной поток: <code>${streamResult.streams.main.substring(0, 120)}</code>`, 'success', 'PASS');
+        detail.stream = streamResult.streams.main;
+      }
+      if (streamResult.streams.nodeFile) {
+        log(`✓ nodeFile: <code>${streamResult.streams.nodeFile.substring(0, 120)}</code>`, 'success');
+        if (!detail.stream) detail.stream = streamResult.streams.nodeFile;
+      }
+
+      // Альтернативные
+      Object.keys(streamResult.streams).forEach(k => {
+        if (k.startsWith('alt_') && streamResult.streams[k]) {
+          const val = streamResult.streams[k];
+          log(`  ✓ ${k.replace('alt_','')}: <code>${(typeof val === 'string' ? val : JSON.stringify(val)).substring(0, 120)}</code>`, 'success');
+          if (!detail.stream) detail.stream = typeof val === 'string' ? val : val[0];
+        }
+      });
+
+      // MP4/M3U8 сводка
+      const mp4r = streamResult.streams.mp4_real || [];
+      const m3u8 = streamResult.streams.m3u8 || [];
+      log(`  📊 MP4 всего: ${streamResult.streams.mp4_total}, реальных: ${mp4r.length}, M3U8: ${m3u8.length}`, mp4r.length || m3u8.length ? 'success' : 'warn');
+
+      if (mp4r.length) {
+        mp4r.slice(0, 3).forEach(u => log(`  → <code>${u.substring(0, 120)}</code>`, 'dim'));
+        if (!detail.stream) detail.stream = mp4r[0];
+      }
+      if (m3u8.length) {
+        m3u8.slice(0, 2).forEach(u => log(`  → <code>${u.substring(0, 120)}</code>`, 'dim'));
+        if (!detail.stream) detail.stream = m3u8[0];
+      }
+
+      if (!streamResult.found) {
+        log(`✗ Видео-потоки НЕ НАЙДЕНЫ`, 'error', 'FAIL');
+        detail.stream = 'NOT FOUND';
+
+        // Дамп фрагментов для отладки
+        log(`  📋 Поиск плеерных конструкций в HTML:`, 'warn');
+        const patterns = [
+          { n: 'flashvars', rx: /flashvars[^=]*=\s*\{/ },
+          { n: 'video_url', rx: /video_url[:\s]+['"]/ },
+          { n: 'sources:', rx: /sources\s*[:=]\s*\[/ },
+          { n: 'file:', rx: /file\s*[:=]\s*['"]/ },
+          { n: '<source', rx: /<source[^>]+src=/ },
+          { n: '<video', rx: /<video[^>]+src=/ },
+          { n: 'player.setup', rx: /player\.setup\(/ },
+          { n: 'KVS player', rx: /video_id:\s*'/ },
+          { n: 'function/0/', rx: /function\/0\// },
+        ];
+        patterns.forEach(p => {
+          const m = videoResult.html.match(p.rx);
+          if (m) {
+            const idx = m.index;
+            const ctx = videoResult.html.substring(idx, idx + 200).replace(/</g, '&lt;');
+            log(`  ✓ <b>${p.n}</b> найден (pos ${idx}): <code>${ctx}</code>`, 'warn');
+          }
+        });
+      }
+
+      // ─── STEP 5: Проверка доступности ───
+      if (detail.stream && detail.stream !== 'NOT FOUND') {
+        log('Шаг 5: Проверка доступности потока', 'info', 'STEP');
+        await testStreamUrl(detail.stream, site.name);
+      }
+    }
+  }
+
+  // ─── ИТОГ ───
+  const cardOk = cardTotal > 0;
+  const streamOk = detail.stream && detail.stream !== 'NOT FOUND';
+
+  if (cardOk && streamOk) {
+    detail.status = 'PASS'; testResults.pass++;
+    log(`✅ ${site.name}: ВСЕ ОК`, 'success', 'PASS');
+  } else if (cardOk) {
+    detail.status = 'WARN'; testResults.warn++;
+    log(`⚠️ ${site.name}: Карточки ОК, видео НЕТ`, 'warn', 'FAIL');
+  } else if (streamOk) {
+    detail.status = 'WARN'; testResults.warn++;
+    log(`⚠️ ${site.name}: Карточки НЕТ, видео ОК`, 'warn', 'FAIL');
+  } else {
+    detail.status = 'FAIL'; testResults.fail++;
     log(`❌ ${site.name}: НЕ РАБОТАЕТ`, 'error', 'FAIL');
   }
-  
+
   testResults.total++;
   testResults.details.push(detail);
   updateSummary();
-  
-  log('', 'dim'); // пустая строка-разделитель
-  return detail;
+  log('', 'dim');
 }
 
 // ======================================================================
-// [CORE] Тест доступности видео-URL
+// [STREAM] Тест доступности видео-URL
 // ======================================================================
 
-async function testVideoUrl(url, siteName) {
-  log(`  Шаг 5: Проверка доступности видео-URL...`, 'info', 'STEP');
-  
+async function testStreamUrl(url, siteName) {
+  // Убираем trailing / из URL (KVS добавляет)
+  url = url.replace(/\/$/, '');
+
+  log(`  Проверка: <code>${url.substring(0, 100)}</code>`, 'dim');
+
+  const proxy = getSelectedProxy();
+
   try {
-    const proxy = document.getElementById('proxySelect').value;
-    const fullUrl = proxy ? proxy + encodeURIComponent(url) : url;
-    
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 10000);
-    
-    const resp = await fetch(fullUrl, { 
-      method: 'HEAD', 
-      signal: controller.signal 
+    const timer = setTimeout(() => controller.abort(), 12000);
+
+    // Пробуем HEAD
+    const resp = await fetch(proxy.buildUrl(url), {
+      method: 'HEAD',
+      signal: controller.signal,
+      headers: proxy.headers || {}
     });
     clearTimeout(timer);
-    
-    const contentType = resp.headers.get('content-type') || 'unknown';
-    const contentLength = resp.headers.get('content-length');
-    const sizeMb = contentLength ? (parseInt(contentLength) / 1048576).toFixed(1) + ' MB' : 'unknown size';
-    
+
+    const ct = resp.headers.get('content-type') || '?';
+    const cl = resp.headers.get('content-length');
+    const size = cl ? (parseInt(cl)/1048576).toFixed(1) + ' MB' : '? size';
+
     if (resp.ok) {
-      log(`  ✓ Видео доступно: HTTP ${resp.status} | ${contentType} | ${sizeMb}`, 'success', 'PASS');
-      
-      // Пробуем добавить видео в тестовую область
-      if (contentType.includes('video') || url.endsWith('.mp4')) {
-        const videoEl = document.createElement('div');
-        videoEl.innerHTML = `
-          <p style="color:#ccc;margin:5px 0;font-size:12px;">${siteName}: ${url.substring(0, 80)}...</p>
-          <video controls preload="metadata" style="max-width:400px;max-height:225px;border-radius:6px;">
-            <source src="${proxy ? proxy + encodeURIComponent(url) : url}" type="video/mp4">
-          </video>`;
-        VIDEO_AREA.appendChild(videoEl);
+      log(`  ✓ Доступен: HTTP ${resp.status} | ${ct} | ${size}`, 'success', 'PASS');
+
+      // Добавить видео-плеер
+      if (ct.includes('video') || url.includes('.mp4') || url.includes('.m3u8')) {
+        const el = document.createElement('div');
+        el.style.marginBottom = '15px';
+        el.innerHTML = `
+          <p style="color:#aaa;font-size:11px;margin:4px 0">${siteName}: ${url.substring(0,80)}...</p>
+          <video controls preload="metadata" crossorigin="anonymous" style="max-width:480px;max-height:270px;border-radius:6px;background:#000;">
+            <source src="${proxy.buildUrl(url)}" type="video/mp4">
+          </video>
+          <br><small style="color:#666">Если не воспроизводится в браузере — проверьте в Lampa на TV</small>`;
+        VIDEO_EL.appendChild(el);
       }
     } else {
-      log(`  ✗ Видео недоступно: HTTP ${resp.status} ${resp.statusText}`, 'error', 'FAIL');
+      log(`  ✗ HTTP ${resp.status} ${resp.statusText}`, 'error');
+
+      // Если HEAD не работает — пробуем GET с range
+      try {
+        const resp2 = await fetch(proxy.buildUrl(url), {
+          headers: Object.assign({ 'Range': 'bytes=0-1024' }, proxy.headers || {})
+        });
+        if (resp2.ok || resp2.status === 206) {
+          log(`  ✓ GET+Range работает: HTTP ${resp2.status}`, 'success');
+        }
+      } catch(e) {}
     }
   } catch (e) {
     if (e.name === 'AbortError') {
-      log(`  ⚠ Таймаут проверки видео-URL`, 'warn');
+      log(`  ⚠ Таймаут проверки`, 'warn');
     } else {
-      log(`  ⚠ Не удалось проверить (CORS/сеть): ${e.message}`, 'warn');
+      log(`  ⚠ Ошибка проверки (CORS): ${e.message}`, 'warn');
+      log(`  💡 Видео может работать в Lampa (native запросы обходят CORS)`, 'dim');
     }
   }
 }
@@ -794,96 +1036,104 @@ async function testVideoUrl(url, siteName) {
 
 async function runAllTests() {
   clearLog();
-  const btn = document.getElementById('btnRunAll');
-  btn.disabled = true;
-  
-  const sites = getSiteDefinitions();
-  log(`🚀 Запуск тестирования ${sites.length} источников`, 'header');
-  log(`CORS Proxy: ${document.getElementById('proxySelect').value || 'отключён'}`, 'dim');
-  log(`Таймаут: ${document.getElementById('timeout').value} сек`, 'dim');
+  document.getElementById('btnRunAll').disabled = true;
+  document.getElementById('btnRunFiltered').disabled = true;
+
+  const sites = getAllSites();
+  log(`🚀 Запуск: ${sites.length} источников`, 'header');
+  log(`Прокси: ${getSelectedProxy().name} | Таймаут: ${document.getElementById('timeout').value}с`, 'dim');
   log('', 'dim');
-  
+
   for (let i = 0; i < sites.length; i++) {
     updateProgress(i + 1, sites.length);
     await testSite(sites[i]);
-    // Пауза между сайтами чтобы не забанили
-    await new Promise(r => setTimeout(r, 500));
+    await new Promise(r => setTimeout(r, 800)); // пауза
   }
-  
+
   generateReport();
-  btn.disabled = false;
-  log(`\n🏁 ТЕСТИРОВАНИЕ ЗАВЕРШЕНО`, 'header');
+  document.getElementById('btnRunAll').disabled = false;
+  document.getElementById('btnRunFiltered').disabled = false;
+  log('🏁 ТЕСТИРОВАНИЕ ЗАВЕРШЕНО', 'header');
 }
 
 async function runFilteredTests() {
   const filter = document.getElementById('siteFilter').value.toLowerCase().trim();
-  if (!filter) { alert('Введите имена сайтов через запятую'); return; }
-  
+  if (!filter) { alert('Введите имена сайтов через запятую в поле фильтра'); return; }
+
   clearLog();
-  const btn = document.getElementById('btnRunFiltered');
-  btn.disabled = true;
-  
-  const filters = filter.split(',').map(s => s.trim());
-  const allSites = getSiteDefinitions();
-  const sites = allSites.filter(s => 
-    filters.some(f => s.name.toLowerCase().includes(f))
-  );
-  
+  document.getElementById('btnRunAll').disabled = true;
+  document.getElementById('btnRunFiltered').disabled = true;
+
+  const filters = filter.split(',').map(s => s.trim()).filter(Boolean);
+  const all = getAllSites();
+  const sites = all.filter(s => filters.some(f => s.name.toLowerCase().includes(f)));
+
   if (!sites.length) {
-    log(`❌ Сайты не найдены по фильтру: "${filter}"`, 'error');
-    log(`Доступные: ${allSites.map(s => s.name).join(', ')}`, 'dim');
-    btn.disabled = false;
+    log(`❌ Не найдено сайтов по фильтру: "${filter}"`, 'error');
+    log(`Доступные: ${all.map(s => s.name).join(', ')}`, 'dim');
+    document.getElementById('btnRunAll').disabled = false;
+    document.getElementById('btnRunFiltered').disabled = false;
     return;
   }
-  
-  log(`🚀 Тестирование ${sites.length} выбранных: ${sites.map(s => s.name).join(', ')}`, 'header');
+
+  log(`🚀 Тест: ${sites.map(s => s.name).join(', ')}`, 'header');
+  log(`Прокси: ${getSelectedProxy().name} | Таймаут: ${document.getElementById('timeout').value}с`, 'dim');
   log('', 'dim');
-  
+
   for (let i = 0; i < sites.length; i++) {
     updateProgress(i + 1, sites.length);
     await testSite(sites[i]);
-    await new Promise(r => setTimeout(r, 500));
+    await new Promise(r => setTimeout(r, 800));
   }
-  
+
   generateReport();
-  btn.disabled = false;
+  document.getElementById('btnRunAll').disabled = false;
+  document.getElementById('btnRunFiltered').disabled = false;
+  log('🏁 ЗАВЕРШЕНО', 'header');
 }
 
 // ======================================================================
-// [UI] Генерация отчёта
+// [REPORT] Сводный отчёт
 // ======================================================================
 
 function generateReport() {
-  let html = '<div style="font-size:13px;">';
-  html += `<h3 style="color:#00d4ff;margin-bottom:10px;">📊 Сводный отчёт</h3>`;
-  html += `<table style="width:100%;border-collapse:collapse;">`;
-  html += `<tr style="background:#21262d;"><th style="padding:6px;text-align:left;">Сайт</th><th>Листинг</th><th>Карточки</th><th>Видео URL</th><th>Поток</th><th>Статус</th></tr>`;
-  
+  let h = '<div style="font-size:13px;">';
+  h += '<h3 style="color:#00d4ff;margin-bottom:10px;">📊 Сводный отчёт</h3>';
+  h += '<table style="width:100%;border-collapse:collapse;">';
+  h += '<tr style="background:#21262d;"><th style="padding:6px;text-align:left">Сайт</th><th>Листинг</th><th>Карточки</th><th>Видео</th><th>Поток</th><th>Статус</th></tr>';
+
   testResults.details.forEach(d => {
-    const color = d.status === 'PASS' ? '#3fb950' : d.status === 'WARN' ? '#d29922' : '#f85149';
-    const icon = d.status === 'PASS' ? '✅' : d.status === 'WARN' ? '⚠️' : '❌';
-    html += `<tr style="border-bottom:1px solid #21262d;">
-      <td style="padding:4px 6px;font-weight:bold;">${d.site}</td>
-      <td style="padding:4px;font-size:11px;color:${d.listing?.startsWith('FAIL') ? '#f85149' : '#aaa'}">${d.listing || '—'}</td>
-      <td style="padding:4px;font-size:11px;color:${d.cards?.startsWith('FAIL') ? '#f85149' : '#aaa'}">${d.cards || '—'}</td>
-      <td style="padding:4px;font-size:11px;max-width:150px;overflow:hidden;text-overflow:ellipsis;">${d.videoUrl?.substring(0, 40) || '—'}</td>
-      <td style="padding:4px;font-size:11px;max-width:150px;overflow:hidden;text-overflow:ellipsis;color:${d.stream === 'NOT FOUND' ? '#f85149' : '#aaa'}">${d.stream?.substring(0, 40) || '—'}</td>
-      <td style="padding:4px;color:${color};font-weight:bold;">${icon} ${d.status}</td>
+    const color = ({PASS:'#3fb950',WARN:'#d29922',FAIL:'#f85149'})[d.status] || '#888';
+    const icon = ({PASS:'✅',WARN:'⚠️',FAIL:'❌'})[d.status] || '?';
+    h += `<tr style="border-bottom:1px solid #21262d;">
+      <td style="padding:4px 6px;font-weight:bold">${d.site}</td>
+      <td style="padding:4px;font-size:11px;color:${d.listing?.includes('FAIL')?'#f85149':'#aaa'}">${d.listing||'—'}</td>
+      <td style="padding:4px;font-size:11px;color:${d.cards?.includes('0')?'#f85149':'#aaa'}">${d.cards||'—'}</td>
+      <td style="padding:4px;font-size:10px;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${(d.videoUrl||'—').substring(0,40)}</td>
+      <td style="padding:4px;font-size:10px;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:${d.stream==='NOT FOUND'?'#f85149':'#aaa'}">${(d.stream||'—').substring(0,40)}</td>
+      <td style="padding:4px;color:${color};font-weight:bold">${icon} ${d.status}</td>
     </tr>`;
   });
-  
-  html += `</table></div>`;
-  REPORT.innerHTML = html;
+
+  h += '</table></div>';
+  REPORT_EL.innerHTML = h;
 }
 
 // ======================================================================
-// Автофокус на фильтр при загрузке
+// [INIT]
 // ======================================================================
+
 window.addEventListener('load', () => {
   document.getElementById('siteFilter').value = 'trahkino, spankbang';
-  log('🔧 AdultJS Debug Module готов к работе', 'info');
-  log('Нажмите "Тестировать выбранные" для быстрой проверки TrahKino и SpankBang', 'dim');
-  log('Или "Тестировать все" для полной диагностики всех источников', 'dim');
+  log('🔧 AdultJS Debug Module v1.1 готов', 'info');
+  log('', 'dim');
+  log('📌 <b>Рекомендуемый порядок:</b>', 'info');
+  log('1. Нажмите <b>"🔌 Тест прокси"</b> — убедитесь что прокси работает', 'dim');
+  log('2. Если corsproxy.io не работает — выберите другой из списка', 'dim');
+  log('3. Нажмите <b>"▶ Тест выбранных"</b> для проверки TrahKino и SpankBang', 'dim');
+  log('4. Для полной диагностики — <b>"▶▶ Тест ВСЕХ"</b>', 'dim');
+  log('', 'dim');
+  log('💡 Если все сайты дают ошибку — проблема в прокси, смените его', 'warn');
 });
 </script>
 
