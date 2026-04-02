@@ -1,1 +1,891 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AdultJS Debug Module v1.0</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Consolas', 'Monaco', monospace; background: #1a1a2e; color: #e0e0e0; padding: 20px; }
+  
+  h1 { color: #00d4ff; margin-bottom: 5px; font-size: 22px; }
+  .subtitle { color: #888; margin-bottom: 20px; font-size: 13px; }
+  
+  /* Панель управления */
+  .controls { 
+    background: #16213e; border: 1px solid #0f3460; border-radius: 8px; 
+    padding: 15px; margin-bottom: 20px; display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
+  }
+  .controls label { color: #aaa; font-size: 13px; }
+  .controls input, .controls select { 
+    background: #1a1a2e; color: #fff; border: 1px solid #0f3460; 
+    border-radius: 4px; padding: 6px 10px; font-family: inherit; font-size: 13px;
+  }
+  .controls input:focus, .controls select:focus { outline: none; border-color: #00d4ff; }
+  
+  button { 
+    background: #0f3460; color: #00d4ff; border: 1px solid #00d4ff; 
+    border-radius: 4px; padding: 8px 16px; cursor: pointer; font-family: inherit; 
+    font-size: 13px; transition: all 0.2s;
+  }
+  button:hover { background: #00d4ff; color: #1a1a2e; }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+  button.danger { border-color: #ff4757; color: #ff4757; }
+  button.danger:hover { background: #ff4757; color: #fff; }
+  button.success { border-color: #2ed573; color: #2ed573; }
+  button.success:hover { background: #2ed573; color: #1a1a2e; }
+  
+  /* Лог */
+  .log-container { 
+    background: #0d1117; border: 1px solid #30363d; border-radius: 8px; 
+    padding: 15px; max-height: 70vh; overflow-y: auto; margin-top: 10px;
+  }
+  .log-entry { 
+    padding: 4px 0; border-bottom: 1px solid #21262d; font-size: 12px; 
+    line-height: 1.6; word-break: break-all;
+  }
+  .log-entry:last-child { border-bottom: none; }
+  .log-entry.info { color: #58a6ff; }
+  .log-entry.success { color: #3fb950; }
+  .log-entry.warn { color: #d29922; }
+  .log-entry.error { color: #f85149; }
+  .log-entry.header { color: #bc8cff; font-weight: bold; font-size: 14px; margin-top: 10px; }
+  .log-entry.dim { color: #666; }
+  .log-entry.video-url { color: #f0e68c; }
+  
+  .timestamp { color: #555; margin-right: 8px; }
+  .tag { 
+    display: inline-block; padding: 1px 6px; border-radius: 3px; 
+    font-size: 10px; margin-right: 6px; font-weight: bold;
+  }
+  .tag.pass { background: #238636; color: #fff; }
+  .tag.fail { background: #da3633; color: #fff; }
+  .tag.skip { background: #6e7681; color: #fff; }
+  .tag.test { background: #1f6feb; color: #fff; }
+  .tag.step { background: #8b5cf6; color: #fff; }
+  
+  /* Сводка */
+  .summary { 
+    background: #16213e; border: 1px solid #0f3460; border-radius: 8px; 
+    padding: 15px; margin-top: 15px; display: flex; gap: 30px; flex-wrap: wrap;
+  }
+  .summary-item { text-align: center; }
+  .summary-item .num { font-size: 28px; font-weight: bold; }
+  .summary-item .label { font-size: 11px; color: #888; margin-top: 4px; }
+  .num.green { color: #3fb950; }
+  .num.red { color: #f85149; }
+  .num.yellow { color: #d29922; }
+  .num.blue { color: #58a6ff; }
+  
+  /* Карточка превью */
+  .preview-cards { display: flex; flex-wrap: wrap; gap: 10px; margin: 10px 0; }
+  .preview-card { 
+    background: #21262d; border-radius: 6px; overflow: hidden; width: 200px; 
+    border: 1px solid #30363d; font-size: 11px;
+  }
+  .preview-card img { width: 100%; height: 112px; object-fit: cover; background: #333; }
+  .preview-card .card-info { padding: 6px; }
+  .preview-card .card-title { color: #ccc; margin-bottom: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .preview-card .card-duration { color: #888; }
+  .preview-card .card-link { color: #58a6ff; text-decoration: none; font-size: 10px; word-break: break-all; }
+  
+  /* Видео тест */
+  .video-test-area { margin: 10px 0; }
+  .video-test-area video { max-width: 400px; max-height: 225px; border-radius: 6px; background: #000; }
+  
+  /* Табы */
+  .tabs { display: flex; gap: 5px; margin-bottom: 15px; flex-wrap: wrap; }
+  .tab { 
+    padding: 6px 14px; border-radius: 4px 4px 0 0; cursor: pointer; 
+    background: #16213e; color: #888; border: 1px solid #0f3460; border-bottom: none;
+    font-size: 12px; transition: all 0.2s;
+  }
+  .tab:hover { color: #fff; }
+  .tab.active { background: #0d1117; color: #00d4ff; border-color: #00d4ff; }
+  
+  .hidden { display: none; }
+  
+  /* Прогресс */
+  .progress-bar { 
+    height: 4px; background: #21262d; border-radius: 2px; margin: 10px 0; overflow: hidden;
+  }
+  .progress-bar .fill { height: 100%; background: #00d4ff; transition: width 0.3s; border-radius: 2px; }
+</style>
+</head>
+<body>
 
+<h1>🔧 AdultJS Debug Module</h1>
+<p class="subtitle">Отладка и проверка актуальности источников. Все запросы через CORS-прокси.</p>
+
+<!-- Панель управления -->
+<div class="controls">
+  <div>
+    <label>CORS Proxy:</label><br>
+    <select id="proxySelect">
+      <option value="https://corsproxy.io/?">corsproxy.io</option>
+      <option value="https://api.allorigins.win/raw?url=">allorigins.win</option>
+      <option value="">Без прокси (native)</option>
+    </select>
+  </div>
+  <div>
+    <label>Таймаут (сек):</label><br>
+    <input type="number" id="timeout" value="15" min="5" max="60" style="width:60px;">
+  </div>
+  <div>
+    <label>Фильтр сайтов:</label><br>
+    <input type="text" id="siteFilter" placeholder="trahkino, spankbang..." style="width:200px;">
+  </div>
+  <div style="display:flex;gap:5px;align-items:flex-end;">
+    <button onclick="runAllTests()" id="btnRunAll">▶ Тестировать все</button>
+    <button onclick="runFilteredTests()" id="btnRunFiltered" class="success">▶ Тестировать выбранные</button>
+    <button onclick="clearLog()" class="danger">✕ Очистить лог</button>
+    <button onclick="exportLog()">📋 Экспорт</button>
+  </div>
+</div>
+
+<div class="progress-bar" id="progressBar"><div class="fill" id="progressFill" style="width:0%"></div></div>
+
+<!-- Сводка -->
+<div class="summary" id="summary" style="display:none;">
+  <div class="summary-item"><div class="num blue" id="sumTotal">0</div><div class="label">Всего</div></div>
+  <div class="summary-item"><div class="num green" id="sumPass">0</div><div class="label">Успешно</div></div>
+  <div class="summary-item"><div class="num red" id="sumFail">0</div><div class="label">Ошибка</div></div>
+  <div class="summary-item"><div class="num yellow" id="sumWarn">0</div><div class="label">Частично</div></div>
+</div>
+
+<!-- Табы -->
+<div class="tabs" id="tabs">
+  <div class="tab active" data-tab="log" onclick="switchTab('log')">📋 Лог</div>
+  <div class="tab" data-tab="cards" onclick="switchTab('cards')">🖼 Карточки</div>
+  <div class="tab" data-tab="video" onclick="switchTab('video')">🎬 Видео</div>
+  <div class="tab" data-tab="report" onclick="switchTab('report')">📊 Отчёт</div>
+</div>
+
+<!-- Контент табов -->
+<div id="tab-log" class="log-container"></div>
+<div id="tab-cards" class="log-container hidden"><div class="preview-cards" id="previewCards"></div></div>
+<div id="tab-video" class="log-container hidden"><div class="video-test-area" id="videoTestArea"></div></div>
+<div id="tab-report" class="log-container hidden" id="reportArea"></div>
+
+<script>
+// ======================================================================
+// [DEBUG MODULE] AdultJS Source Tester v1.0
+// ======================================================================
+
+const LOG = document.getElementById('tab-log');
+const CARDS = document.getElementById('previewCards');
+const VIDEO_AREA = document.getElementById('videoTestArea');
+const REPORT = document.getElementById('tab-report');
+
+let logEntries = [];
+let testResults = { total: 0, pass: 0, fail: 0, warn: 0, details: [] };
+
+// ======================================================================
+// [UTIL] Логирование
+// ======================================================================
+
+function log(msg, cls = '', tag = '') {
+  const time = new Date().toLocaleTimeString();
+  const entry = document.createElement('div');
+  entry.className = 'log-entry ' + cls;
+  let tagHtml = '';
+  if (tag) {
+    const tagCls = tag === 'PASS' ? 'pass' : tag === 'FAIL' ? 'fail' : tag === 'SKIP' ? 'skip' : tag === 'TEST' ? 'test' : 'step';
+    tagHtml = `<span class="tag ${tagCls}">${tag}</span>`;
+  }
+  entry.innerHTML = `<span class="timestamp">${time}</span>${tagHtml}${msg}`;
+  LOG.appendChild(entry);
+  LOG.scrollTop = LOG.scrollHeight;
+  logEntries.push({ time, msg, cls, tag });
+}
+
+function clearLog() {
+  LOG.innerHTML = '';
+  CARDS.innerHTML = '';
+  VIDEO_AREA.innerHTML = '';
+  REPORT.innerHTML = '';
+  logEntries = [];
+  testResults = { total: 0, pass: 0, fail: 0, warn: 0, details: [] };
+  document.getElementById('summary').style.display = 'none';
+  document.getElementById('progressFill').style.width = '0%';
+}
+
+function updateSummary() {
+  document.getElementById('summary').style.display = 'flex';
+  document.getElementById('sumTotal').textContent = testResults.total;
+  document.getElementById('sumPass').textContent = testResults.pass;
+  document.getElementById('sumFail').textContent = testResults.fail;
+  document.getElementById('sumWarn').textContent = testResults.warn;
+}
+
+function updateProgress(current, total) {
+  const pct = Math.round((current / total) * 100);
+  document.getElementById('progressFill').style.width = pct + '%';
+}
+
+function switchTab(name) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelector(`.tab[data-tab="${name}"]`).classList.add('active');
+  ['log', 'cards', 'video', 'report'].forEach(id => {
+    document.getElementById('tab-' + id).classList.toggle('hidden', id !== name);
+  });
+}
+
+function exportLog() {
+  let text = 'AdultJS Debug Report\n' + '='.repeat(60) + '\n';
+  text += `Date: ${new Date().toISOString()}\n`;
+  text += `Total: ${testResults.total} | Pass: ${testResults.pass} | Fail: ${testResults.fail} | Warn: ${testResults.warn}\n\n`;
+  testResults.details.forEach(d => {
+    text += `[${d.status}] ${d.site}\n`;
+    text += `  Listing: ${d.listing || 'N/A'}\n`;
+    text += `  Cards: ${d.cards || 'N/A'}\n`;
+    text += `  Video URL: ${d.videoUrl || 'N/A'}\n`;
+    text += `  Stream: ${d.stream || 'N/A'}\n`;
+    text += `  Error: ${d.error || 'none'}\n\n`;
+  });
+  logEntries.forEach(e => { text += `[${e.time}] ${e.tag ? '['+e.tag+'] ' : ''}${e.msg.replace(/<[^>]+>/g, '')}\n`; });
+  const blob = new Blob([text], { type: 'text/plain' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'adultjs-debug-' + Date.now() + '.txt';
+  a.click();
+}
+
+// ======================================================================
+// [UTIL] HTTP с CORS-прокси
+// ======================================================================
+
+async function fetchWithProxy(url, charset = null) {
+  const proxy = document.getElementById('proxySelect').value;
+  const timeout = parseInt(document.getElementById('timeout').value) * 1000;
+  const fullUrl = proxy ? proxy + encodeURIComponent(url) : url;
+  
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeout);
+  
+  try {
+    const resp = await fetch(fullUrl, { 
+      signal: controller.signal,
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }
+    });
+    clearTimeout(timer);
+    
+    if (!resp.ok) throw new Error(`HTTP ${resp.status} ${resp.statusText}`);
+    
+    if (charset && charset !== 'utf-8' && charset !== 'UTF-8') {
+      const buf = await resp.arrayBuffer();
+      return new TextDecoder(charset).decode(buf);
+    }
+    return await resp.text();
+  } catch (e) {
+    clearTimeout(timer);
+    throw e;
+  }
+}
+
+// ======================================================================
+// [CORE] Определения всех источников для тестирования
+// ======================================================================
+
+function getSiteDefinitions() {
+  return [
+    // === Встроенные парсеры ===
+    {
+      name: 'BongaCams',
+      type: 'builtin',
+      listUrl: 'https://ukr.bongacams.com/',
+      cardPattern: /data-chathost="([^"]+)"/,
+      videoTest: null, // live stream, не тестируем файл
+      notes: 'Live webcams — карточки парсятся, стримы HLS'
+    },
+    {
+      name: 'XVideos',
+      type: 'builtin',
+      listUrl: 'https://www.xv-ru.com/new/1',
+      cardPattern: /<div id="video/,
+      titlePattern: /title="([^"]+)"/,
+      videoPageUrl: null, // будет взят из первой карточки
+      streamPattern: /html5player\.setVideoHLS\('([^']+)'\)/,
+      notes: 'HLS streams'
+    },
+    {
+      name: 'XNXX',
+      type: 'builtin',
+      listUrl: 'https://www.xnxx-ru.com/best/2025-01/1',
+      cardPattern: /<div id="video_/,
+      streamPattern: /html5player\.setVideoHLS\('([^']+)'\)/,
+      notes: 'HLS streams'
+    },
+    {
+      name: 'SpankBang',
+      type: 'builtin',
+      listUrl: 'https://ru.spankbang.com/new_videos/1/',
+      cardPattern: /class="video-item responsive-page"/,
+      streamPattern: /'([0-9]+)(p|k)': ?\['(https?:\/\/[^']+)'/,
+      notes: 'Direct MP4 streams'
+    },
+    {
+      name: 'Chaturbate',
+      type: 'builtin',
+      listUrl: 'https://chaturbate.com/api/ts/roomlist/room-list/?enable_recommendations=false&limit=10',
+      cardPattern: /"username":"([^"]+)"/,
+      notes: 'API JSON + HLS'
+    },
+    {
+      name: 'Eporner',
+      type: 'builtin',
+      listUrl: 'https://www.eporner.com/',
+      cardPattern: /<div class="mb/,
+      notes: 'XHR API for streams'
+    },
+
+    // === NextHub сайты (из массива P) ===
+    ...getNextHubSites()
+  ];
+}
+
+function getNextHubSites() {
+  // Определяем NextHub сайты с их параметрами для тестирования
+  const sites = [
+    { name: 'PornHub', host: 'https://rt.pornhub.com', listUri: 'video?page=1', 
+      cardXpath: "//li[contains(@class,'videoblock')]", videoPattern: /"videoUrl":"([^"]+)"/ },
+    
+    { name: 'Xhamster', host: 'https://ru.xhamster.com', listUri: '', 
+      cardXpath: "//div[contains(@class,'thumb-list__item')]", videoNodeFile: "//link[@rel='preload']" },
+    
+    { name: 'Lenkino', host: 'https://wes.lenkino.adult', listUri: 'page/1',
+      cardXpath: "//div[@class='item']", videoPattern: /video_alt_url:[\t ]+'([^']+)'/ },
+    
+    { name: 'Lenporno', host: 'https://pepa.lenporno.xyz', listUri: 'new-update/1/',
+      cardXpath: "//div[@class='innercont']", videoPattern: /(https?:\/\/[^\t" ]+_720p.mp4)/ },
+    
+    { name: '24video', host: 'https://sex.24videos.space', listUri: 'page-1/',
+      cardXpath: "//div[@class='item video-block']" },
+    
+    { name: 'BigBoss', host: 'https://bigboss.video', listUri: 'latest/1/',
+      cardXpath: "//div[contains(@class,'main__ct-item')]" },
+    
+    { name: 'Ebasos', host: 'https://wel.ebasos.club', listUri: 'latest-updates/1/',
+      cardXpath: "//div[contains(@class, 'item')]" },
+    
+    { name: 'Ebun', host: 'https://www1.ebun.tv', listUri: 'latest-updates/1/',
+      cardXpath: "//div[contains(@class, 'item th-item')]" },
+    
+    { name: 'JopaOnline', host: 'https://jopaonline.mobi', listUri: '1',
+      cardXpath: "//div[@class='th']" },
+    
+    { name: 'NoodleMagazine', host: 'https://adult.noodlemagazine.com', listUri: 'now?p=1',
+      cardXpath: "//div[contains(@class, 'item')]", videoPattern: /"file":"([^"]+)"/ },
+    
+    { name: 'Porno365', host: 'https://porno365x.me', listUri: '1/',
+      cardXpath: "//li[contains(@class, 'trailer')]", videoPattern: /file:[\t ]+"([^"]+)"/ },
+    
+    { name: 'Porno666', host: 'https://wwwp.porno666.news', listUri: 'latest-updates/1/',
+      cardXpath: "//div[@class='item trailer']" },
+    
+    { name: 'Pornk', host: 'https://ps.pornk.top', listUri: 'latest-updates/1/',
+      cardXpath: "//a[contains(@class, 'preview')]" },
+    
+    { name: 'Porntrex', host: 'https://www.porntrex.com', listUri: 'latest-updates/1/',
+      cardXpath: "//div[contains(@class,'video-preview-screen')]" },
+    
+    { name: 'GayPornTube', host: 'https://www.gayporntube.com', listUri: 'page1.html',
+      cardXpath: "//div[contains(@class,'item') and contains(@class,'item-col')]" },
+    
+    { name: 'Sosushka', host: 'https://gi.sosushka.vip', listUri: 'new/page1/',
+      cardXpath: "//div[@class='thumb']" },
+    
+    { name: 'PornoBriz', host: 'https://pornobriz.com', listUri: 'new/page1/',
+      cardXpath: "//div[contains(@class, 'thumb_main')]" },
+    
+    { name: 'Youjizz', host: 'https://www.youjizz.com', listUri: 'newest-clips/1.html',
+      cardXpath: "//div[@class='video-thumb']" },
+    
+    { name: 'Vporno', host: 'https://vv.vporno.video', listUri: 'page/1',
+      cardXpath: "//div[@class='col-xs-6 col-sm-6 col-md-4 col-lg-4']" },
+    
+    { name: 'Pornobolt', host: 'https://ru.pornobolt.li', listUri: '1/',
+      cardXpath: "//div[@class='media-obj widethumb']" },
+    
+    { name: 'PornoAkt', host: 'https://a.pornoakt.club', listUri: 'page/1/',
+      cardXpath: "//article[contains(@class, 'shortstory')]" },
+    
+    { name: 'PornOne', host: 'https://pornone.com', listUri: '1/',
+      cardXpath: "//a[@class='popbop vidLinkFX  videocard linkage']" },
+    
+    { name: 'Rusvideos', host: 'https://sex.rusvideos.art', listUri: '1/',
+      cardXpath: "//div[@class='thumb wide']" },
+    
+    { name: 'Veporn', host: 'https://veporn.com', listUri: 'page/1/',
+      cardXpath: "//article[contains(@class, 'loop-post vdeo')]" },
+    
+    { name: 'Vtrahe', host: 'https://site.vtrahehd.tv', listUri: '', charset: 'windows-1251',
+      cardXpath: "//div[@class='innercont']" },
+    
+    { name: 'VtraheTV', host: 'https://my.vtrahe.work', listUri: 'page/1/',
+      cardXpath: "//div[@class='innercont']" },
+
+    // [DEV#1] TrahKino
+    { name: 'TrahKino', host: 'https://trahkino.me', listUri: '',
+      cardXpath: "//div[contains(@class,'item')]",
+      imgAttr: 'data-original',
+      titleXpath: ".//strong[contains(@class,'title')]",
+      durationXpath: ".//div[contains(@class,'duration')]",
+      videoPattern: /function\/0\/(https:\/\/[^/]+\/get_file\/[^']+_(?:1080|720|480|360)p\.mp4)\//,
+      // [DEV#1] Альтернативные паттерны для отладки
+      altVideoPatterns: [
+        { name: 'video_url', regex: /video_url:\s*'function\/0\/(https?:\/\/[^']+)\// },
+        { name: 'video_alt_url', regex: /video_alt_url:\s*'function\/0\/(https?:\/\/[^']+)\// },
+        { name: 'video_alt_url2', regex: /video_alt_url2:\s*'function\/0\/(https?:\/\/[^']+)\// },
+        { name: 'video_alt_url3', regex: /video_alt_url3:\s*'function\/0\/(https?:\/\/[^']+)\// },
+        { name: 'video_alt_url4', regex: /video_alt_url4:\s*'function\/0\/(https?:\/\/[^']+)\// },
+        { name: 'any_mp4', regex: /https:\/\/[^'"]+\.mp4/g },
+        { name: 'any_m3u8', regex: /https:\/\/[^'"]+\.m3u8/g },
+      ],
+      notes: '[DEV#1] KVS CMS, function/0/URL/ format'
+    },
+  ];
+
+  return sites.map(s => ({ ...s, type: 'nexthub' }));
+}
+
+// ======================================================================
+// [CORE] Тест одного сайта
+// ======================================================================
+
+async function testSite(site) {
+  const detail = { site: site.name, status: 'UNKNOWN', listing: null, cards: null, videoUrl: null, stream: null, error: null };
+  
+  log(`<b>═══ ${site.name} ═══</b> <span style="color:#666">(${site.type})</span>`, 'header', 'TEST');
+  if (site.notes) log(`ℹ️ ${site.notes}`, 'dim');
+
+  // ─── Шаг 1: Загрузка листинга ───
+  log(`Шаг 1: Загрузка листинга...`, 'info', 'STEP');
+  let listUrl = site.listUrl || (site.host + (site.listUri ? '/' + site.listUri : ''));
+  log(`URL: <a href="${listUrl}" target="_blank" style="color:#58a6ff">${listUrl}</a>`, 'dim');
+
+  let listHtml;
+  try {
+    listHtml = await fetchWithProxy(listUrl, site.charset);
+    const sizeKb = Math.round(listHtml.length / 1024);
+    log(`✓ Загружено: ${sizeKb} KB`, 'success');
+    detail.listing = `${sizeKb} KB`;
+  } catch (e) {
+    log(`✗ Ошибка загрузки: ${e.message}`, 'error', 'FAIL');
+    detail.listing = 'FAIL: ' + e.message;
+    detail.status = 'FAIL';
+    detail.error = e.message;
+    testResults.fail++;
+    testResults.total++;
+    testResults.details.push(detail);
+    updateSummary();
+    return detail;
+  }
+
+  // ─── Шаг 2: Парсинг карточек ───
+  log(`Шаг 2: Парсинг карточек видео...`, 'info', 'STEP');
+  
+  let cards = [];
+  let firstVideoUrl = null;
+
+  if (site.cardXpath) {
+    // XPath парсинг (NextHub стиль)
+    try {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(listHtml, 'text/html');
+      const result = doc.evaluate(site.cardXpath, doc, null, XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null);
+      
+      log(`XPath: <code>${site.cardXpath}</code> → найдено: ${result.snapshotLength}`, 
+          result.snapshotLength > 0 ? 'success' : 'error');
+      
+      for (let i = 0; i < Math.min(result.snapshotLength, 5); i++) {
+        const node = result.snapshotItem(i);
+        const card = {};
+        
+        // Название
+        if (site.titleXpath) {
+          const titleNode = doc.evaluate(site.titleXpath, node, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+          card.title = titleNode ? titleNode.textContent.trim() : '';
+        } else {
+          const titleEl = node.querySelector('a[title]') || node.querySelector('.title') || node.querySelector('p') || node.querySelector('h2, h3');
+          card.title = titleEl ? (titleEl.getAttribute('title') || titleEl.textContent || '').trim() : '';
+        }
+        
+        // Ссылка
+        const linkEl = node.querySelector('a[href]');
+        card.href = linkEl ? linkEl.getAttribute('href') : '';
+        if (card.href && !card.href.startsWith('http')) {
+          card.href = site.host + (card.href.startsWith('/') ? '' : '/') + card.href;
+        }
+        
+        // Картинка
+        const imgEl = node.querySelector('img');
+        if (imgEl) {
+          card.img = imgEl.getAttribute(site.imgAttr || 'data-src') || 
+                     imgEl.getAttribute('data-original') || 
+                     imgEl.getAttribute('src') || '';
+          if (card.img && !card.img.startsWith('http')) {
+            if (card.img.startsWith('//')) card.img = 'https:' + card.img;
+            else card.img = site.host + card.img;
+          }
+        }
+        
+        // Длительность
+        if (site.durationXpath) {
+          const durNode = doc.evaluate(site.durationXpath, node, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+          card.duration = durNode ? durNode.textContent.trim() : '';
+        } else {
+          const durEl = node.querySelector('.duration, .time, [class*="duration"], [class*="time"]');
+          card.duration = durEl ? durEl.textContent.trim() : '';
+        }
+        
+        cards.push(card);
+        if (!firstVideoUrl && card.href) firstVideoUrl = card.href;
+      }
+      
+      detail.cards = `${result.snapshotLength} найдено`;
+    } catch (e) {
+      log(`✗ Ошибка XPath: ${e.message}`, 'error');
+      detail.cards = 'FAIL: ' + e.message;
+    }
+  } else if (site.cardPattern) {
+    // Regex парсинг (встроенные парсеры)
+    const matches = listHtml.match(new RegExp(site.cardPattern.source, 'g'));
+    const count = matches ? matches.length : 0;
+    log(`Regex: /${site.cardPattern.source}/ → найдено: ${count}`, count > 0 ? 'success' : 'error');
+    detail.cards = count + ' совпадений';
+    
+    // Попробуем найти ссылку на видео
+    const hrefMatch = listHtml.match(/href="(\/video[^"]+)"/);
+    if (hrefMatch) firstVideoUrl = site.host + hrefMatch[1];
+  }
+  
+  // Показать карточки
+  if (cards.length > 0) {
+    log(`✓ Карточки успешно распарсены (${cards.length} превью)`, 'success', 'PASS');
+    cards.forEach((card, i) => {
+      log(`  [${i+1}] "${card.title?.substring(0, 50)}..." | ${card.duration} | <a href="${card.href}" target="_blank">link</a>`, 'dim');
+      
+      // Добавить в таб карточек
+      const cardEl = document.createElement('div');
+      cardEl.className = 'preview-card';
+      cardEl.innerHTML = `
+        <img src="${card.img || ''}" onerror="this.style.background='#444';this.alt='No image'" loading="lazy">
+        <div class="card-info">
+          <div class="card-title" title="${card.title || ''}">${card.title || 'N/A'}</div>
+          <div class="card-duration">${card.duration || '??:??'} — ${site.name}</div>
+          <a class="card-link" href="${card.href || '#'}" target="_blank">${card.href?.substring(0, 40) || 'N/A'}...</a>
+        </div>`;
+      CARDS.appendChild(cardEl);
+    });
+  } else {
+    log(`✗ Карточки не найдены!`, 'error', 'FAIL');
+    
+    // Диагностика
+    log(`  📋 Диагностика HTML (первые 500 символов):`, 'warn');
+    log(`  <code>${listHtml.substring(0, 500).replace(/</g, '&lt;').replace(/>/g, '&gt;')}</code>`, 'dim');
+    
+    // Поиск возможных классов
+    const classes = listHtml.match(/class="[^"]+"/g);
+    if (classes) {
+      const unique = [...new Set(classes.slice(0, 20))];
+      log(`  🔍 Найденные классы: ${unique.join(', ')}`, 'warn');
+    }
+  }
+
+  // ─── Шаг 3: Загрузка страницы видео ───
+  if (firstVideoUrl) {
+    log(`Шаг 3: Загрузка страницы видео...`, 'info', 'STEP');
+    log(`URL: <a href="${firstVideoUrl}" target="_blank" style="color:#58a6ff">${firstVideoUrl}</a>`, 'dim');
+    
+    let videoHtml;
+    try {
+      videoHtml = await fetchWithProxy(firstVideoUrl, site.charset);
+      const sizeKb = Math.round(videoHtml.length / 1024);
+      log(`✓ Страница видео загружена: ${sizeKb} KB`, 'success');
+      detail.videoUrl = firstVideoUrl;
+    } catch (e) {
+      log(`✗ Ошибка загрузки страницы видео: ${e.message}`, 'error');
+      detail.videoUrl = 'FAIL: ' + e.message;
+    }
+
+    // ─── Шаг 4: Извлечение потоков видео ───
+    if (videoHtml) {
+      log(`Шаг 4: Извлечение видео-потоков...`, 'info', 'STEP');
+      
+      let streamFound = false;
+      
+      // Основной паттерн
+      if (site.videoPattern) {
+        const match = videoHtml.match(site.videoPattern);
+        if (match) {
+          const url = match[1] || match[0];
+          log(`✓ ОСНОВНОЙ паттерн: <span class="video-url">${url.substring(0, 120)}...</span>`, 'success', 'PASS');
+          detail.stream = url.substring(0, 200);
+          streamFound = true;
+          
+          // Тест доступности URL
+          await testVideoUrl(url, site.name);
+        } else {
+          log(`✗ Основной паттерн НЕ найден: <code>${site.videoPattern.source.substring(0, 80)}</code>`, 'error');
+        }
+      }
+      
+      // Тест nodeFile (Xhamster и др.)
+      if (site.videoNodeFile && !streamFound) {
+        try {
+          const doc = new DOMParser().parseFromString(videoHtml, 'text/html');
+          const node = doc.evaluate(site.videoNodeFile, doc, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+          if (node) {
+            const href = node.getAttribute('href') || node.getAttribute('content') || node.getAttribute('src');
+            if (href) {
+              log(`✓ nodeFile найден: <span class="video-url">${href.substring(0, 120)}</span>`, 'success', 'PASS');
+              detail.stream = href.substring(0, 200);
+              streamFound = true;
+            }
+          }
+        } catch(e) {}
+      }
+      
+      // [DEV#1] Альтернативные паттерны для TrahKino и др.
+      if (site.altVideoPatterns) {
+        log(`  🔍 Проверка альтернативных паттернов (${site.altVideoPatterns.length}):`, 'warn');
+        for (const alt of site.altVideoPatterns) {
+          const match = videoHtml.match(alt.regex);
+          if (match) {
+            const found = Array.isArray(match) && match.length > 1 ? match.slice(0, 3) : [match[0]?.substring(0, 150)];
+            log(`  ✓ <b>${alt.name}</b>: ${found.map(f => `<span class="video-url">${f?.substring(0, 100)}</span>`).join(' | ')}`, 'success');
+            if (!streamFound) {
+              detail.stream = (match[1] || match[0])?.substring(0, 200);
+              streamFound = true;
+            }
+          } else {
+            log(`  ✗ ${alt.name}: не найден`, 'dim');
+          }
+        }
+      }
+      
+      // Общий поиск MP4/M3U8 URL если ничего не нашли
+      if (!streamFound) {
+        log(`  🔍 Поиск любых медиа-URL в HTML...`, 'warn');
+        
+        const mp4s = videoHtml.match(/https?:\/\/[^\s'"<>]+\.mp4[^\s'"<>]*/g);
+        const m3u8s = videoHtml.match(/https?:\/\/[^\s'"<>]+\.m3u8[^\s'"<>]*/g);
+        
+        if (mp4s && mp4s.length) {
+          // Фильтруем preview
+          const real = mp4s.filter(u => !u.includes('preview') && !u.includes('screenshot'));
+          log(`  MP4 URLs найдено: ${mp4s.length} (реальных: ${real.length})`, real.length ? 'success' : 'warn');
+          real.slice(0, 5).forEach(u => log(`    → <span class="video-url">${u.substring(0, 120)}</span>`, 'dim'));
+          if (real.length) { detail.stream = real[0].substring(0, 200); streamFound = true; }
+        }
+        
+        if (m3u8s && m3u8s.length) {
+          log(`  M3U8 URLs найдено: ${m3u8s.length}`, 'success');
+          m3u8s.slice(0, 3).forEach(u => log(`    → <span class="video-url">${u.substring(0, 120)}</span>`, 'dim'));
+          if (!streamFound && m3u8s.length) { detail.stream = m3u8s[0].substring(0, 200); streamFound = true; }
+        }
+        
+        if (!mp4s && !m3u8s) {
+          log(`  ✗ Медиа-URL не найдены в HTML!`, 'error');
+          
+          // Дамп JS-переменных плеера
+          log(`  📋 Поиск конфигурации плеера:`, 'warn');
+          const playerConfigs = [
+            /flashvars\s*=\s*\{([^}]{100,500})\}/,
+            /video_url[:\s]*['"]([^'"]+)/,
+            /var\s+player\s*=\s*\{([^}]{50,500})\}/,
+            /sources:\s*\[([^\]]{50,500})\]/,
+            /file:\s*['"]([^'"]+)/
+          ];
+          playerConfigs.forEach(rx => {
+            const m = videoHtml.match(rx);
+            if (m) log(`    Найдено: <code>${m[0].substring(0, 200).replace(/</g, '&lt;')}</code>`, 'warn');
+          });
+        }
+      }
+      
+      if (!streamFound) {
+        detail.stream = 'NOT FOUND';
+      }
+    }
+  } else {
+    log(`⚠ Шаг 3-4 пропущен: нет ссылки на видео`, 'warn', 'SKIP');
+  }
+
+  // ─── Итог ───
+  const cardOk = cards.length > 0 || (detail.cards && !detail.cards.startsWith('FAIL'));
+  const streamOk = detail.stream && detail.stream !== 'NOT FOUND' && !detail.stream.startsWith('FAIL');
+  
+  if (cardOk && streamOk) {
+    detail.status = 'PASS';
+    testResults.pass++;
+    log(`✅ ${site.name}: ВСЕ ТЕСТЫ ПРОЙДЕНЫ`, 'success', 'PASS');
+  } else if (cardOk || streamOk) {
+    detail.status = 'WARN';
+    testResults.warn++;
+    log(`⚠️ ${site.name}: ЧАСТИЧНО (карточки: ${cardOk ? '✓' : '✗'}, видео: ${streamOk ? '✓' : '✗'})`, 'warn', 'FAIL');
+  } else {
+    detail.status = 'FAIL';
+    testResults.fail++;
+    log(`❌ ${site.name}: НЕ РАБОТАЕТ`, 'error', 'FAIL');
+  }
+  
+  testResults.total++;
+  testResults.details.push(detail);
+  updateSummary();
+  
+  log('', 'dim'); // пустая строка-разделитель
+  return detail;
+}
+
+// ======================================================================
+// [CORE] Тест доступности видео-URL
+// ======================================================================
+
+async function testVideoUrl(url, siteName) {
+  log(`  Шаг 5: Проверка доступности видео-URL...`, 'info', 'STEP');
+  
+  try {
+    const proxy = document.getElementById('proxySelect').value;
+    const fullUrl = proxy ? proxy + encodeURIComponent(url) : url;
+    
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 10000);
+    
+    const resp = await fetch(fullUrl, { 
+      method: 'HEAD', 
+      signal: controller.signal 
+    });
+    clearTimeout(timer);
+    
+    const contentType = resp.headers.get('content-type') || 'unknown';
+    const contentLength = resp.headers.get('content-length');
+    const sizeMb = contentLength ? (parseInt(contentLength) / 1048576).toFixed(1) + ' MB' : 'unknown size';
+    
+    if (resp.ok) {
+      log(`  ✓ Видео доступно: HTTP ${resp.status} | ${contentType} | ${sizeMb}`, 'success', 'PASS');
+      
+      // Пробуем добавить видео в тестовую область
+      if (contentType.includes('video') || url.endsWith('.mp4')) {
+        const videoEl = document.createElement('div');
+        videoEl.innerHTML = `
+          <p style="color:#ccc;margin:5px 0;font-size:12px;">${siteName}: ${url.substring(0, 80)}...</p>
+          <video controls preload="metadata" style="max-width:400px;max-height:225px;border-radius:6px;">
+            <source src="${proxy ? proxy + encodeURIComponent(url) : url}" type="video/mp4">
+          </video>`;
+        VIDEO_AREA.appendChild(videoEl);
+      }
+    } else {
+      log(`  ✗ Видео недоступно: HTTP ${resp.status} ${resp.statusText}`, 'error', 'FAIL');
+    }
+  } catch (e) {
+    if (e.name === 'AbortError') {
+      log(`  ⚠ Таймаут проверки видео-URL`, 'warn');
+    } else {
+      log(`  ⚠ Не удалось проверить (CORS/сеть): ${e.message}`, 'warn');
+    }
+  }
+}
+
+// ======================================================================
+// [UI] Запуск тестов
+// ======================================================================
+
+async function runAllTests() {
+  clearLog();
+  const btn = document.getElementById('btnRunAll');
+  btn.disabled = true;
+  
+  const sites = getSiteDefinitions();
+  log(`🚀 Запуск тестирования ${sites.length} источников`, 'header');
+  log(`CORS Proxy: ${document.getElementById('proxySelect').value || 'отключён'}`, 'dim');
+  log(`Таймаут: ${document.getElementById('timeout').value} сек`, 'dim');
+  log('', 'dim');
+  
+  for (let i = 0; i < sites.length; i++) {
+    updateProgress(i + 1, sites.length);
+    await testSite(sites[i]);
+    // Пауза между сайтами чтобы не забанили
+    await new Promise(r => setTimeout(r, 500));
+  }
+  
+  generateReport();
+  btn.disabled = false;
+  log(`\n🏁 ТЕСТИРОВАНИЕ ЗАВЕРШЕНО`, 'header');
+}
+
+async function runFilteredTests() {
+  const filter = document.getElementById('siteFilter').value.toLowerCase().trim();
+  if (!filter) { alert('Введите имена сайтов через запятую'); return; }
+  
+  clearLog();
+  const btn = document.getElementById('btnRunFiltered');
+  btn.disabled = true;
+  
+  const filters = filter.split(',').map(s => s.trim());
+  const allSites = getSiteDefinitions();
+  const sites = allSites.filter(s => 
+    filters.some(f => s.name.toLowerCase().includes(f))
+  );
+  
+  if (!sites.length) {
+    log(`❌ Сайты не найдены по фильтру: "${filter}"`, 'error');
+    log(`Доступные: ${allSites.map(s => s.name).join(', ')}`, 'dim');
+    btn.disabled = false;
+    return;
+  }
+  
+  log(`🚀 Тестирование ${sites.length} выбранных: ${sites.map(s => s.name).join(', ')}`, 'header');
+  log('', 'dim');
+  
+  for (let i = 0; i < sites.length; i++) {
+    updateProgress(i + 1, sites.length);
+    await testSite(sites[i]);
+    await new Promise(r => setTimeout(r, 500));
+  }
+  
+  generateReport();
+  btn.disabled = false;
+}
+
+// ======================================================================
+// [UI] Генерация отчёта
+// ======================================================================
+
+function generateReport() {
+  let html = '<div style="font-size:13px;">';
+  html += `<h3 style="color:#00d4ff;margin-bottom:10px;">📊 Сводный отчёт</h3>`;
+  html += `<table style="width:100%;border-collapse:collapse;">`;
+  html += `<tr style="background:#21262d;"><th style="padding:6px;text-align:left;">Сайт</th><th>Листинг</th><th>Карточки</th><th>Видео URL</th><th>Поток</th><th>Статус</th></tr>`;
+  
+  testResults.details.forEach(d => {
+    const color = d.status === 'PASS' ? '#3fb950' : d.status === 'WARN' ? '#d29922' : '#f85149';
+    const icon = d.status === 'PASS' ? '✅' : d.status === 'WARN' ? '⚠️' : '❌';
+    html += `<tr style="border-bottom:1px solid #21262d;">
+      <td style="padding:4px 6px;font-weight:bold;">${d.site}</td>
+      <td style="padding:4px;font-size:11px;color:${d.listing?.startsWith('FAIL') ? '#f85149' : '#aaa'}">${d.listing || '—'}</td>
+      <td style="padding:4px;font-size:11px;color:${d.cards?.startsWith('FAIL') ? '#f85149' : '#aaa'}">${d.cards || '—'}</td>
+      <td style="padding:4px;font-size:11px;max-width:150px;overflow:hidden;text-overflow:ellipsis;">${d.videoUrl?.substring(0, 40) || '—'}</td>
+      <td style="padding:4px;font-size:11px;max-width:150px;overflow:hidden;text-overflow:ellipsis;color:${d.stream === 'NOT FOUND' ? '#f85149' : '#aaa'}">${d.stream?.substring(0, 40) || '—'}</td>
+      <td style="padding:4px;color:${color};font-weight:bold;">${icon} ${d.status}</td>
+    </tr>`;
+  });
+  
+  html += `</table></div>`;
+  REPORT.innerHTML = html;
+}
+
+// ======================================================================
+// Автофокус на фильтр при загрузке
+// ======================================================================
+window.addEventListener('load', () => {
+  document.getElementById('siteFilter').value = 'trahkino, spankbang';
+  log('🔧 AdultJS Debug Module готов к работе', 'info');
+  log('Нажмите "Тестировать выбранные" для быстрой проверки TrahKino и SpankBang', 'dim');
+  log('Или "Тестировать все" для полной диагностики всех источников', 'dim');
+});
+</script>
+
+</body>
+</html>
