@@ -1965,10 +1965,6 @@ function _toPrimitive(e, t) {
       console.log(TAG, msg);
     }
 
-    // Показать ошибку в консоли
-    function logError(name, reason) {
-      console.error(TAG, "ОШИБКА [" + name + "]:", reason);
-    }
 
     // Проверка доступности одного источника (GET первой страницы)
     // Возвращает Promise<{name, ok, cards, error}>
@@ -2051,6 +2047,28 @@ function _toPrimitive(e, t) {
       });
     }
 
+    // --------------------------------------------------------
+    // Очередь уведомлений с паузой NOTIFY_PAUSE_MS между ними.
+    // Гарантирует что каждое Lampa.Noty успевает отобразиться
+    // и не перекрывается следующим мгновенно.
+    // --------------------------------------------------------
+    var NOTIFY_PAUSE_MS = 3000;
+
+    function notifyQueue(messages) {
+      if (!messages || messages.length === 0) return;
+      var i = 0;
+      function showNext() {
+        if (i >= messages.length) return;
+        var item = messages[i]; i++;
+        if (item.type === "error")     console.error(TAG, item.text);
+        else if (item.type === "warn") console.warn(TAG, item.text);
+        else                           console.log(TAG, item.text);
+        try { Lampa.Noty.show(item.text); } catch(e) {}
+        setTimeout(showNext, NOTIFY_PAUSE_MS);
+      }
+      showNext();
+    }
+
     // Запуск диагностики всех источников последовательно
     function runAll() {
       var sources = getAllSources();
@@ -2062,50 +2080,54 @@ function _toPrimitive(e, t) {
 
       function checkNext() {
         if (idx >= total) {
-          // Выводим итог
-          var ok = results.filter(function(r) { return r.ok; }).length;
-          var fail = results.filter(function(r) { return !r.ok; }).length;
+          var ok     = results.filter(function(r) { return r.ok; });
+          var failed = results.filter(function(r) { return !r.ok; });
+          var warned = results.filter(function(r) { return r.ok && r.cards >= 0 && r.cards < 3; });
 
-          notify("✅ AdultJS Диагностика завершена: OK=" + ok + " / ОШИБОК=" + fail + " / ВСЕГО=" + total);
-
-          // Выводим детали ошибок
-          results.filter(function(r) { return !r.ok; }).forEach(function(r) {
-            var msg = "❌ [" + r.name + "] " + r.error;
-            logError(r.name, r.error);
-            // Показываем каждую ошибку с задержкой чтобы не забивать очередь Noty
-            setTimeout(function() { notify(msg); }, 500);
-          });
-
-          // Выводим источники с подозрительно малым числом карточек (< 3)
-          results.filter(function(r) { return r.ok && r.cards >= 0 && r.cards < 3; }).forEach(function(r) {
-            var msg = "⚠️ [" + r.name + "] мало карточек: " + r.cards + " (возможна проблема парсинга)";
-            console.warn(TAG, msg);
-            setTimeout(function() { notify(msg); }, 1000);
-          });
-
-          // Выводим успешные источники в консоль
-          results.filter(function(r) { return r.ok; }).forEach(function(r) {
+          // Успешные — только в консоль, не засоряем TV
+          ok.forEach(function(r) {
             console.log(TAG, "OK [" + r.name + "] карточек: " + r.cards);
           });
 
+          // Сообщение 1: итоговая сводка (всегда одно)
+          var summary = "✅ Готово: " + ok.length + " OK"
+            + (failed.length ? " | ❌ " + failed.length + " ошибок"        : "")
+            + (warned.length ? " | ⚠️ "  + warned.length + " предупреждений" : "")
+            + " (всего: " + total + ")";
+
+          // Очередь: сводка → каждая ошибка → каждое предупреждение
+          // Пауза NOTIFY_PAUSE_MS (3 сек) между каждым сообщением
+          var queue = [{ type: "info", text: summary }];
+
+          failed.forEach(function(r) {
+            queue.push({ type: "error", text: "❌ " + r.name + ": " + r.error });
+          });
+          warned.forEach(function(r) {
+            queue.push({ type: "warn",
+              text: "⚠️ " + r.name + ": мало карточек (" + r.cards + ") — возможна проблема парсинга" });
+          });
+
+          notifyQueue(queue);
           return;
         }
 
+        // Прогресс только в console.log — не засоряем TV во время проверки
         var src = sources[idx];
         idx++;
 
         checkSource(src).then(function(result) {
           results.push(result);
-          // Краткий прогресс каждые 5 источников
-          if (idx % 5 === 0 || idx === total) {
-            notify("⏳ Проверено " + idx + "/" + total + "...");
-          }
+          console.log(TAG, "⏳ [" + idx + "/" + total + "] " + result.name
+            + (result.ok
+              ? " OK (" + result.cards + " карточек)"
+              : " ОШИБКА: " + result.error));
           checkNext();
         });
       }
 
       checkNext();
     }
+
 
     // Публичный API модуля отладки
     return {
