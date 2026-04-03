@@ -3,7 +3,7 @@
 
   var Defined = {
     use_api: 'xsena',
-    localhost: 'https://cf.xsena.red/sisi',
+    localhost: 'https://pl.xsena.red/sisi',
     framework: ''
   };
 
@@ -46,7 +46,7 @@
   }
 }
 
-var hostkey = 'https://cf.xsena.red'.replace('http://', '').replace('https://', '');
+var hostkey = 'https://pl.xsena.red'.replace('http://', '').replace('https://', '');
 
 if (!window.rch_nws || !window.rch_nws[hostkey]) {
   if (!window.rch_nws) window.rch_nws = {};
@@ -71,7 +71,7 @@ window.rch_nws[hostkey].typeInvoke = function rchtypeInvoke(host, call) {
     if (Lampa.Platform.is('android') || Lampa.Platform.is('tizen')) check(true);
     else {
       var net = new Lampa.Reguest();
-      net.silent('https://cf.xsena.red'.indexOf(location.host) >= 0 ? 'https://github.com/' : host + '/cors/check', function() {
+      net.silent('https://pl.xsena.red'.indexOf(location.host) >= 0 ? 'https://github.com/' : host + '/cors/check', function() {
         check(true);
       }, function() {
         check(false);
@@ -83,7 +83,7 @@ window.rch_nws[hostkey].typeInvoke = function rchtypeInvoke(host, call) {
 };
 
 window.rch_nws[hostkey].Registry = function RchRegistry(client, startConnection) {
-  window.rch_nws[hostkey].typeInvoke('https://cf.xsena.red', function() {
+  window.rch_nws[hostkey].typeInvoke('https://pl.xsena.red', function() {
 
     client.invoke("RchRegistry", {
       host: location.host,
@@ -119,7 +119,7 @@ window.rch_nws[hostkey].Registry = function RchRegistry(client, startConnection)
 	  
 	  function sendResult(uri, html) {
 	    $.ajax({
-	      url: 'https://cf.xsena.red/rch/' + uri + '?id=' + rchId,
+	      url: 'https://pl.xsena.red/rch/' + uri + '?id=' + rchId,
 	      type: 'POST',
 	      data: html,
 	      async: true,
@@ -201,7 +201,7 @@ window.rch_nws[hostkey].Registry = function RchRegistry(client, startConnection)
   });
 };
 
-  window.rch_nws[hostkey].typeInvoke('https://cf.xsena.red', function() {});
+  window.rch_nws[hostkey].typeInvoke('https://pl.xsena.red', function() {});
 
   function rchInvoke(json, call) {
     if (window.nwsClient && window.nwsClient[hostkey] && window.nwsClient[hostkey]._shouldReconnect){
@@ -227,7 +227,7 @@ window.rch_nws[hostkey].Registry = function RchRegistry(client, startConnection)
 
   function rchRun(json, call) {
     if (typeof NativeWsClient == 'undefined') {
-      Lampa.Utils.putScript(["https://cf.xsena.red/js/nws-client-es5.js?v07032026"], function() {}, false, function() {
+      Lampa.Utils.putScript(["https://pl.xsena.red/js/nws-client-es5.js?v07032026"], function() {}, false, function() {
         rchInvoke(json, call);
       }, true);
     } else {
@@ -779,7 +779,7 @@ window.rch_nws[hostkey].Registry = function RchRegistry(client, startConnection)
       u = u.replace(/^[\?&]+/, '');
       u = u.replace(/[\?&]+$/, '');
 	  
-      if (u.replace(/[\?&]+$/, '').indexOf('https://cf.xsena.red'.replace(/https:/, '').replace(/http:/, '')) === -1) 
+      if (u.replace(/[\?&]+$/, '').indexOf('https://pl.xsena.red'.replace(/https:/, '').replace(/http:/, '')) === -1) 
         return u;
 
       var unic_id = Lampa.Storage.get('sisi_unic_id', '');
@@ -1092,7 +1092,7 @@ window.rch_nws[hostkey].Registry = function RchRegistry(client, startConnection)
     var Search = {
       title: 'xsena.red',
       search: function search(params, oncomplite) {
-        network.silent('https://cf.xsena.red/rch/check/connected', function(json) {
+        network.silent('https://pl.xsena.red/rch/check/connected', function(json) {
           if (json.rch) {
             rchRun(json, function() {
               Api.search(params, oncomplite);
