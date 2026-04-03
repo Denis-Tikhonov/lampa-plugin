@@ -2,8 +2,8 @@
   'use strict';
 
   var Defined = {
-    use_api: 'bwasisi',
-    localhost: 'https://rc.bwa.ad/sisi',
+    use_api: 'xsena',
+    localhost: 'https://cf.xsena.red/sisi',
     framework: ''
   };
 
@@ -46,7 +46,7 @@
   }
 }
 
-var hostkey = 'https://rc.bwa.ad'.replace('http://', '').replace('https://', '');
+var hostkey = 'https://cf.xsena.red'.replace('http://', '').replace('https://', '');
 
 if (!window.rch_nws || !window.rch_nws[hostkey]) {
   if (!window.rch_nws) window.rch_nws = {};
@@ -71,7 +71,7 @@ window.rch_nws[hostkey].typeInvoke = function rchtypeInvoke(host, call) {
     if (Lampa.Platform.is('android') || Lampa.Platform.is('tizen')) check(true);
     else {
       var net = new Lampa.Reguest();
-      net.silent('https://rc.bwa.ad'.indexOf(location.host) >= 0 ? 'https://github.com/' : host + '/cors/check', function() {
+      net.silent('https://cf.xsena.red'.indexOf(location.host) >= 0 ? 'https://github.com/' : host + '/cors/check', function() {
         check(true);
       }, function() {
         check(false);
@@ -83,7 +83,7 @@ window.rch_nws[hostkey].typeInvoke = function rchtypeInvoke(host, call) {
 };
 
 window.rch_nws[hostkey].Registry = function RchRegistry(client, startConnection) {
-  window.rch_nws[hostkey].typeInvoke('https://rc.bwa.ad', function() {
+  window.rch_nws[hostkey].typeInvoke('https://cf.xsena.red', function() {
 
     client.invoke("RchRegistry", {
       host: location.host,
@@ -119,7 +119,7 @@ window.rch_nws[hostkey].Registry = function RchRegistry(client, startConnection)
 	  
 	  function sendResult(uri, html) {
 	    $.ajax({
-	      url: 'https://rc.bwa.ad/rch/' + uri + '?id=' + rchId,
+	      url: 'https://cf.xsena.red/rch/' + uri + '?id=' + rchId,
 	      type: 'POST',
 	      data: html,
 	      async: true,
@@ -201,7 +201,7 @@ window.rch_nws[hostkey].Registry = function RchRegistry(client, startConnection)
   });
 };
 
-  window.rch_nws[hostkey].typeInvoke('https://rc.bwa.ad', function() {});
+  window.rch_nws[hostkey].typeInvoke('https://cf.xsena.red', function() {});
 
   function rchInvoke(json, call) {
     if (window.nwsClient && window.nwsClient[hostkey] && window.nwsClient[hostkey]._shouldReconnect){
@@ -227,7 +227,7 @@ window.rch_nws[hostkey].Registry = function RchRegistry(client, startConnection)
 
   function rchRun(json, call) {
     if (typeof NativeWsClient == 'undefined') {
-      Lampa.Utils.putScript(["https://rc.bwa.ad/js/nws-client-es5.js?v07032026"], function() {}, false, function() {
+      Lampa.Utils.putScript(["https://cf.xsena.red/js/nws-client-es5.js?v07032026"], function() {}, false, function() {
         rchInvoke(json, call);
       }, true);
     } else {
@@ -273,7 +273,7 @@ window.rch_nws[hostkey].Registry = function RchRegistry(client, startConnection)
       return modal();
     }
 	
-    if (false && !element.history_uid && element.bookmark && Lampa.Storage.field('sisi_history')) {
+    if (true && !element.history_uid && element.bookmark && Lampa.Storage.field('sisi_history')) {
       network.silent(Api.account(Defined.localhost + '/history/add'), function(e) {}, function() {}, JSON.stringify(element), {
         headers: {
           'Content-Type': 'application/json'
@@ -779,7 +779,7 @@ window.rch_nws[hostkey].Registry = function RchRegistry(client, startConnection)
       u = u.replace(/^[\?&]+/, '');
       u = u.replace(/[\?&]+$/, '');
 	  
-      if (u.replace(/[\?&]+$/, '').indexOf('https://rc.bwa.ad'.replace(/https:/, '').replace(/http:/, '')) === -1) 
+      if (u.replace(/[\?&]+$/, '').indexOf('https://cf.xsena.red'.replace(/https:/, '').replace(/http:/, '')) === -1) 
         return u;
 
       var unic_id = Lampa.Storage.get('sisi_unic_id', '');
@@ -903,7 +903,7 @@ window.rch_nws[hostkey].Registry = function RchRegistry(client, startConnection)
 
   var ApiHttp$1 = new ApiHttp();
 
-  var Api = ApiHttp$1; //true ? ApiPWA$1 : ApiHttp$1;
+  var Api = ApiHttp$1; //Defined.use_api == 'pwa' ? ApiPWA$1 : ApiHttp$1;
 
   function Sisi(object) {
     var comp = new Lampa.InteractionMain(object);
@@ -1090,9 +1090,9 @@ window.rch_nws[hostkey].Registry = function RchRegistry(client, startConnection)
   }
   
     var Search = {
-      title: 'Клубничка',
+      title: 'xsena.red',
       search: function search(params, oncomplite) {
-        network.silent('https://rc.bwa.ad/rch/check/connected', function(json) {
+        network.silent('https://cf.xsena.red/rch/check/connected', function(json) {
           if (json.rch) {
             rchRun(json, function() {
               Api.search(params, oncomplite);
@@ -1134,7 +1134,7 @@ window.rch_nws[hostkey].Registry = function RchRegistry(client, startConnection)
 	
 
   function startPlugin() {
-    window['plugin_bwasisi_' + Defined.use_api + '_ready'] = true;
+    window['plugin_xsena_' + Defined.use_api + '_ready'] = true;
     var unic_id = Lampa.Storage.get('sisi_unic_id', '');
 
     if (!unic_id) {
@@ -1145,7 +1145,7 @@ window.rch_nws[hostkey].Registry = function RchRegistry(client, startConnection)
     Lampa.Component.add('sisi_' + Defined.use_api, Sisi);
     Lampa.Component.add('sisi_view_' + Defined.use_api, View); 
 	//addSourceSearch();
-	Lampa.Search.addSource(Search);
+	
 
     function addFilter() {
       var activi;
@@ -1182,7 +1182,7 @@ window.rch_nws[hostkey].Registry = function RchRegistry(client, startConnection)
       window.sisi_add_param_ready = true;
       Lampa.SettingsApi.addComponent({
         component: 'sisi',
-        name: Lampa.Lang.translate('lampac_sisiname'),
+        name: 'xsena.red',
         icon: "<svg width=\"200\" height=\"243\" viewBox=\"0 0 200 243\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M187.714 130.727C206.862 90.1515 158.991 64.2019 100.983 64.2019C42.9759 64.2019 -4.33044 91.5669 10.875 130.727C26.0805 169.888 63.2501 235.469 100.983 234.997C138.716 234.526 168.566 171.303 187.714 130.727Z\" stroke=\"currentColor\" stroke-width=\"15\"/><path d=\"M102.11 62.3146C109.995 39.6677 127.46 28.816 169.692 24.0979C172.514 56.1811 135.338 64.2018 102.11 62.3146Z\" stroke=\"currentColor\" stroke-width=\"15\"/><path d=\"M90.8467 62.7863C90.2285 34.5178 66.0667 25.0419 31.7127 33.063C28.8904 65.1461 68.8826 62.7863 90.8467 62.7863Z\" stroke=\"currentColor\" stroke-width=\"15\"/><path d=\"M100.421 58.5402C115.627 39.6677 127.447 13.7181 85.2149 9C82.3926 41.0832 83.5258 35.4214 100.421 58.5402Z\" stroke=\"currentColor\" stroke-width=\"15\"/><rect x=\"39.0341\" y=\"98.644\" width=\"19.1481\" height=\"30.1959\" rx=\"9.57407\" fill=\"currentColor\"/><rect x=\"90.8467\" y=\"92.0388\" width=\"19.1481\" height=\"30.1959\" rx=\"9.57407\" fill=\"currentColor\"/><rect x=\"140.407\" y=\"98.644\" width=\"19.1481\" height=\"30.1959\" rx=\"9.57407\" fill=\"currentColor\"/><rect x=\"116.753\" y=\"139.22\" width=\"19.1481\" height=\"30.1959\" rx=\"9.57407\" fill=\"currentColor\"/><rect x=\"64.9404\" y=\"139.22\" width=\"19.1481\" height=\"30.1959\" rx=\"9.57407\" fill=\"currentColor\"/><rect x=\"93.0994\" y=\"176.021\" width=\"19.1481\" height=\"30.1959\" rx=\"9.57407\" fill=\"currentColor\"/></svg>"
       });
       Lampa.SettingsApi.addParam({
@@ -1216,10 +1216,10 @@ window.rch_nws[hostkey].Registry = function RchRegistry(client, startConnection)
     }
 
     function add() {
-      var button = $("<li class=\"menu__item selector\" data-action=\"sisi\">\n            <div class=\"menu__ico\">\n                <svg width=\"200\" height=\"243\" viewBox=\"0 0 200 243\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M187.714 130.727C206.862 90.1515 158.991 64.2019 100.983 64.2019C42.9759 64.2019 -4.33044 91.5669 10.875 130.727C26.0805 169.888 63.2501 235.469 100.983 234.997C138.716 234.526 168.566 171.303 187.714 130.727Z\" stroke=\"currentColor\" stroke-width=\"15\"/><path d=\"M102.11 62.3146C109.995 39.6677 127.46 28.816 169.692 24.0979C172.514 56.1811 135.338 64.2018 102.11 62.3146Z\" stroke=\"currentColor\" stroke-width=\"15\"/><path d=\"M90.8467 62.7863C90.2285 34.5178 66.0667 25.0419 31.7127 33.063C28.8904 65.1461 68.8826 62.7863 90.8467 62.7863Z\" stroke=\"currentColor\" stroke-width=\"15\"/><path d=\"M100.421 58.5402C115.627 39.6677 127.447 13.7181 85.2149 9C82.3926 41.0832 83.5258 35.4214 100.421 58.5402Z\" stroke=\"currentColor\" stroke-width=\"15\"/><rect x=\"39.0341\" y=\"98.644\" width=\"19.1481\" height=\"30.1959\" rx=\"9.57407\" fill=\"currentColor\"/><rect x=\"90.8467\" y=\"92.0388\" width=\"19.1481\" height=\"30.1959\" rx=\"9.57407\" fill=\"currentColor\"/><rect x=\"140.407\" y=\"98.644\" width=\"19.1481\" height=\"30.1959\" rx=\"9.57407\" fill=\"currentColor\"/><rect x=\"116.753\" y=\"139.22\" width=\"19.1481\" height=\"30.1959\" rx=\"9.57407\" fill=\"currentColor\"/><rect x=\"64.9404\" y=\"139.22\" width=\"19.1481\" height=\"30.1959\" rx=\"9.57407\" fill=\"currentColor\"/><rect x=\"93.0994\" y=\"176.021\" width=\"19.1481\" height=\"30.1959\" rx=\"9.57407\" fill=\"currentColor\"/></svg>\n            </div>\n            <div class=\"menu__text\">" + Lampa.Lang.translate('lampac_sisiname') + "</div>\n        </li>");
+      var button = $("<li class=\"menu__item selector\" data-action=\"xsena\">\n            <div class=\"menu__ico\">\n                <svg xmlns=\"http://www.w3.org/2000/svg\" version=\"1.1\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" width=\"512\" height=\"512\" x=\"0\" y=\"0\" viewBox=\"0 0 29.461 29.461\" style=\"enable-background:new 0 0 512 512\" xml:space=\"preserve\" class=\"\"><g><path d=\"M28.855 13.134c-.479 0-.91-.197-1.371-.452-1.671 7.509-10.383 11.899-12.765 12.972-2.514-1.125-12.034-5.916-12.963-14.188-.043.029-.088.056-.132.084-.411.269-.797.523-1.299.523-.064 0-.121-.029-.184-.038C1.586 22.377 14.72 27.47 14.72 27.47s12.227-4.74 14.386-14.362a1.397 1.397 0 0 1-.251.026z\" fill=\"currentColor\" ></path><path d=\"M29.379 8.931C28.515-.733 16.628.933 14.721 6.432 12.814.932.928-.733.062 8.931c-.397 4.426 1.173.063 3.508 1.205 1.008.494 1.99 2.702 3.356 2.974 1.998.397 3.109-1.551 4.27-1.631 3.174-.222 2.394 6.596 5.424 5.586 1.961-.653 2.479-3.016 4.171-2.806 1.582.195 3.296-3.711 4.78-3.571 2.471.23 4.305 3.786 3.808-1.757z\" fill=\"currentColor\" ></path><path d=\"M14.894 21.534c2.286 0-.929-3.226-.588-4.511-1.994 1.276-1.697 4.511.588 4.511z\" fill=\"currentColor\"></path></g></svg>\n            </div>\n            <div class=\"menu__text\">xsena.red</div>\n        </li>");
 
-      if (true) {
-        var pw = $('<div>r</div>');
+      if (Defined.use_api == 'pwa') {
+        var pw = $('<div>p</div>');
         pw.css({
           position: 'absolute',
           right: '-0.3em',
@@ -1276,7 +1276,7 @@ window.rch_nws[hostkey].Registry = function RchRegistry(client, startConnection)
                 } else {
                   Lampa.Activity.push({
                     url: '',
-                    title: Lampa.Lang.translate('lampac_sisiname'),
+                    title: 'xsena.red',
                     component: 'sisi_' + Defined.use_api,
                     page: 1
                   });
@@ -1312,7 +1312,7 @@ window.rch_nws[hostkey].Registry = function RchRegistry(client, startConnection)
 						} else {
 						  Lampa.Activity.push({
 							url: '',
-							title: Lampa.Lang.translate('lampac_sisiname'),
+							title: 'xsena.red',
 							component: 'sisi_' + Defined.use_api,
 							page: 1
 						  });
@@ -1337,10 +1337,10 @@ window.rch_nws[hostkey].Registry = function RchRegistry(client, startConnection)
     }
   }
 
-  if (!window['plugin_bwasisi_' + Defined.use_api + '_ready']) {
+  if (!window['plugin_xsena_' + Defined.use_api + '_ready']) {
     startPlugin();
     /*
-    if(true){
+    if(Defined.use_api == 'pwa'){
         let s = document.createElement('script')
             s.onload = function(){
                 Blazor.start({
