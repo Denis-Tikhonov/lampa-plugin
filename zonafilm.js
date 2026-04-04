@@ -1932,20 +1932,14 @@ function _toPrimitive(e, t) {
     }
 
     // ----------------------------------------------------------
-    // [STATUS_STORE] v1.3.1 — персистентное хранилище статусов
-    //
-    // Бэкенд: Lampa.Storage — данные сохраняются в localStorage
-    // и переживают перезапуск плагина и приложения.
-    //
-    // Ключ хранилища: "adultjs_site_status"
-    // Формат значения: JSON-объект { "xvideos.com": "green", ... }
-    //
-    // Значение статуса: "green" | "yellow" | "red"
-    // По умолчанию (не проверялся): "green"
+    // [STATUS_STORE] v1.3.0 — хранилище статусов источников
+    // Ключ: имя источника (строчными буквами)
+    // Значение: "green" | "yellow" | "red"
+    // Изначально все источники — "green"
+    // Обновляется модулем AdultJS_Debugger после runAll()
     // ----------------------------------------------------------
     window.AdultJS_Status = window.AdultJS_Status || (function () {
-
-      var STORAGE_KEY = "adultjs_site_status";
+      var _store = {};
 
       // Значок для каждого статуса
       var _dot = {
@@ -1954,49 +1948,24 @@ function _toPrimitive(e, t) {
         red:    "🔴"
       };
 
-      // Читаем сохранённые статусы из Lampa.Storage
-      function _load() {
-        try {
-          var raw = Lampa.Storage.get(STORAGE_KEY, "{}");
-          return (typeof raw === "string") ? JSON.parse(raw) : (raw || {});
-        } catch(e) {
-          return {};
-        }
-      }
-
-      // Записываем статусы в Lampa.Storage
-      function _save(store) {
-        try {
-          Lampa.Storage.set(STORAGE_KEY, JSON.stringify(store));
-        } catch(e) {}
-      }
-
       return {
-        // Установить статус источника и сохранить в Storage
+        // Установить статус источника
         set: function (name, status) {
-          var store = _load();
-          store[name.toLowerCase()] = status;
-          _save(store);
+          _store[name.toLowerCase()] = status;
         },
         // Получить значок для отображения рядом с названием
         dot: function (name) {
-          var store = _load();
-          var s = store[name.toLowerCase()];
+          var s = _store[name.toLowerCase()];
+          // Если статус не установлен — считаем зелёным (не проверялся)
           return _dot[s] || _dot.green;
         },
         // Получить текущий статус (green/yellow/red)
         get: function (name) {
-          var store = _load();
-          return store[name.toLowerCase()] || "green";
+          return _store[name.toLowerCase()] || "green";
         },
-        // Сбросить все статусы (перед новой проверкой)
+        // Сбросить все статусы (например, перед новой проверкой)
         reset: function () {
-          _save({});
-        },
-        // Инвалидировать кэш меню → при следующем открытии
-        // l.menu перечитает значки из Storage
-        invalidateMenu: function () {
-          window._adultjs_menu_dirty = true;
+          _store = {};
         }
       };
     })();
