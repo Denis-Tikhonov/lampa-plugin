@@ -1,6 +1,6 @@
 // ============================================================
 // AdultJS Plugin for Lampa (Android TV) — DEBUG VERSION
-// VERSION: 1.3.1
+// VERSION: 1.3.2
 // CHANGELOG:
 //   v1.0.0        - Оригинальная версия
 //   v1.1.0        - Добавлен TrahKino, переименован плагин "Adult JS"
@@ -16,6 +16,10 @@
 //                   * 🔴 красный — недоступен (HTTP-ошибка / таймаут)
 //                   * Изначально все источники отображаются как 🟢
 //   v1.3.1        - Исправление: значки теперь реально обновляются в меню
+//   v1.3.2        - Исправлена диагностика xvideos (ложный 🔴)
+//                   Исправлен парсер SpankBang (новый HTML 2024+)
+//                   Исправлен JopaOnline: добавлен nodeFile og:video
+//                   Версия плагина отображается в настройках Lampa
 //                   * Хранилище статусов: Lampa.Storage (персистентное)
 //                   * Статусы сохраняются после перезапуска приложения
 //                   * Кэш меню инвалидируется после диагностики
@@ -635,8 +639,31 @@ function _toPrimitive(e, t) {
           window.sisi_add_param_ready || (window.sisi_add_param_ready = !0,
             Lampa.SettingsApi.addComponent({
               component: "AdultJS",
-              name: Lampa.Lang.translate("lampac_adultName"),
+              // [VERSION_DISPLAY] v1.3.2 — версия отображается в заголовке компонента
+              name: Lampa.Lang.translate("lampac_adultName") + "  v 1.3.2",
               icon: '<svg width="200" height="243" viewBox="0 0 200 243" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M187.714 130.727C206.862 90.1515 158.991 64.2019 100.983 64.2019C42.9759 64.2019 -4.33044 91.5669 10.875 130.727C26.0805 169.888 63.2501 235.469 100.983 234.997C138.716 234.526 168.566 171.303 187.714 130.727Z" stroke="currentColor" stroke-width="15"/><path d="M102.11 62.3146C109.995 39.6677 127.46 28.816 169.692 24.0979C172.514 56.1811 135.338 64.2018 102.11 62.3146Z" stroke="currentColor" stroke-width="15"/><path d="M90.8467 62.7863C90.2285 34.5178 66.0667 25.0419 31.7127 33.063C28.8904 65.1461 68.8826 62.7863 90.8467 62.7863Z" stroke="currentColor" stroke-width="15"/><path d="M100.421 58.5402C115.627 39.6677 127.447 13.7181 85.2149 9C82.3926 41.0832 83.5258 35.4214 100.421 58.5402Z" stroke="currentColor" stroke-width="15"/><rect x="39.0341" y="98.644" width="19.1481" height="30.1959" rx="9.57407" fill="currentColor"/><rect x="90.8467" y="92.0388" width="19.1481" height="30.1959" rx="9.57407" fill="currentColor"/><rect x="140.407" y="98.644" width="19.1481" height="30.1959" rx="9.57407" fill="currentColor"/><rect x="116.753" y="139.22" width="19.1481" height="30.1959" rx="9.57407" fill="currentColor"/><rect x="64.9404" y="139.22" width="19.1481" height="30.1959" rx="9.57407" fill="currentColor"/><rect x="93.0994" y="176.021" width="19.1481" height="30.1959" rx="9.57407" fill="currentColor"/></svg>'
+            }),
+
+            // --------------------------------------------------------
+            // [PARAM: version_info] v1.3.2 — строка версии в настройках
+            // type:"select" с одним значением = нередактируемая строка-label
+            // --------------------------------------------------------
+            Lampa.SettingsApi.addParam({
+              component: "AdultJS",
+              param: {
+                name:    "adultjs_version",
+                type:    "select",
+                values:  "v 1.3.2",
+                default: "v 1.3.2"
+              },
+              field: {
+                name:        "Версия плагина",
+                description: "AdultJS v 1.3.2 — debug"
+              },
+              onRender: function (e) {
+                // Делаем поле нередактируемым: убираем интерактивность
+                e.find(".selector").removeClass("selector");
+              }
             }),
 
             // --------------------------------------------------------
@@ -1739,7 +1766,9 @@ function _toPrimitive(e, t) {
     // --- Ebun ---
     { enable: !0, displayname: "Ebun", host: "https://www1.ebun.tv", menu: { route: { sort: "{host}/{sort}/{page}/", cat: "{host}/categories/{cat}/{page}/", catsort: "{host}/categories/{cat}/{sort}/{page}/" }, sort: { "Новинки": "", "Топ рейтинга": "top-rated", "Популярнаe": "most-popular" }, categories: { "Русское": "russkoe", "Анал": "anal", "Зрелые": "zrelye", "Мамки": "mamki" } }, list: { uri: "latest-updates/{page}/" }, search: { uri: "search/{search}/{page}/" }, contentParse: { nodes: "//div[contains(@class, 'item th-item item_new')]", name: { node: ".//div[@class='item-title']" }, href: { node: ".//a", attribute: "href" }, img: { node: ".//img", attribute: "data-src" }, duration: { node: ".//div[@class='meta-time']" } }, view: { iframe: { pattern: '<iframe[^>]+ src="([^"]+)"' }, regexMatch: { matches: ["video_alt_url", "video_url"], pattern: "{value}:[\\t ]+'([^']+)'" } } },
     // --- JopaOnline ---
-    { enable: !0, displayname: "JopaOnline", host: "https://jopaonline.mobi", menu: { route: { sort: "{host}/{sort}/{page}", cat: "{host}/categories/{cat}/{page}", catsort: "{host}/categories/{cat}/{sort}/{page}" }, sort: { "Новинки": "", "Топ рейтинга": "toprated", "Популярнаe": "popular" }, categories: { "Мамки": "mamki", "Русское": "russkoe", "Зрелые": "zrelye", "Анал": "anal" } }, list: { uri: "{page}" }, search: { uri: "search/{search}/{page}" }, contentParse: { nodes: "//div[@class='th']", name: { node: ".//p" }, href: { node: ".//a", attribute: "href" }, img: { node: ".//img", attribute: "src" }, duration: { node: ".//div[@class='th-duration']" }, preview: { node: ".//img", attribute: "data-preview" } }, view: { related: !0, regexMatch: { matches: ["url3", "url2", "url"], pattern: "video_alt_{value}:[\\t ]+'([^']+)'" } } },
+    // [FIX v1.3.2] JopaOnline сменил JS-плеер. Добавлен nodeFile как дополнительный способ извлечения URL видео (og:video мета-тег)
+    // Старый паттерн video_alt_{value} оставлен как fallback.
+    { enable: !0, displayname: "JopaOnline", host: "https://jopaonline.mobi", menu: { route: { sort: "{host}/{sort}/{page}", cat: "{host}/categories/{cat}/{page}", catsort: "{host}/categories/{cat}/{sort}/{page}" }, sort: { "Новинки": "", "Топ рейтинга": "toprated", "Популярнаe": "popular" }, categories: { "Мамки": "mamki", "Русское": "russkoe", "Зрелые": "zrelye", "Анал": "anal" } }, list: { uri: "{page}" }, search: { uri: "search/{search}/{page}" }, contentParse: { nodes: "//div[@class='th']", name: { node: ".//p" }, href: { node: ".//a", attribute: "href" }, img: { node: ".//img", attribute: "src" }, duration: { node: ".//div[@class='th-duration']" }, preview: { node: ".//img", attribute: "data-preview" } }, view: { related: !0, nodeFile: { node: "//meta[@property='og:video']", attribute: "content" }, regexMatch: { matches: ["url3", "url2", "url"], pattern: "video_alt_{value}:[\\t ]+'([^']+)'" } } },
     // --- NoodleMagazine ---
     { enable: !0, displayname: "NoodleMagazine", host: "https://adult.noodlemagazine.com", menu: { route: { sort: "{host}/{sort}/week?p={page}" }, sort: { "Новинки": "", "Популярное": "popular" } }, list: { uri: "now?p={page}" }, search: { uri: "video/{search}?p={page}" }, contentParse: { nodes: "//div[contains(@class, 'item')]", name: { node: ".//div[@class='title']" }, href: { node: ".//a", attribute: "href" }, img: { node: ".//img", attribute: "data-src" }, duration: { node: ".//div[@class='m_time']" }, preview: { node: ".//div", attribute: "data-trailer_url" } }, view: { related: !0, regexMatch: { pattern: '"file":"([^"]+)"' } } },
     // --- Porndig ---
