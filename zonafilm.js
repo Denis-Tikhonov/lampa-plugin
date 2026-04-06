@@ -1,110 +1,44 @@
 // ============================================================
 // AdultJS Plugin for Lampa (Android TV)
 // VERSION: 2.0.0
-// CHANGELOG:
-//   v1.0.0        - Оригинальная версия
-//   v1.1.0        - Добавлен TrahKino
-//   v1.2.0        - Добавлен UkDevilz, fallback_host механизм
-//   v1.2.0-debug  - Встроен AdultJS_Debugger
-//   v1.3.0        - Цветные значки статуса источников
-//   v1.3.1        - Значки реально обновляются в меню
-//   v1.3.2        - Исправления парсеров, версия в настройках
-//   v2.0.0        - Архитектурный рефакторинг:
-//                   * [BLOCK:00] Новые модули: MirrorResolver,
-//                     SourceHealth, requestWithRetry,
-//                     AdultJS_ProxyAdapter, AdultJS_Config
-//                   * MirrorResolver: HEAD-тест доменов,
-//                     redirect-guard, TTL-кэш в localStorage,
-//                     fallback на GitHub/CF Worker API
-//                   * SourceHealth: exponential backoff,
-//                     successRate, автоотключение источников
-//                   * requestWithRetry: 3 попытки 0.5/1.5/4с,
-//                     не ретраить 404/410
-//                   * AdultJS_ProxyAdapter: опциональный
-//                     Cloudflare Worker прокси для CORS/HLS
-//                   * playlist(): фильтрация disabled-источников,
-//                     сортировка по successRate
-//                   * Меню: кнопка "Обновить зеркала"
-//                   * Debugger v2.0.0: mirror check + health stats
 // ============================================================
 
 "use strict";
 
 // ============================================================
-// [BLOCK:00:START] ADULTJS MODULES v2.0.0
-// Подключить ДО основного IIFE плагина.
-// Все объекты доступны глобально через замыкание.
+// [BLOCK:00] ADULTJS MODULES v2.0.0
 // ============================================================
 
-// ── Конфигурация ─────────────────────────────────────────────
 var AdultJS_Config = {
-  // URL вашего Cloudflare Worker (заполнить после деплоя)
   workerUrl: 'https://YOUR_WORKER.workers.dev',
-
-  // true → проксировать видеозапросы через CF Worker
-  // false → прямые запросы (по умолчанию)
   proxyEnabled: false,
-
-  // Endpoints для обновления зеркал (primary → fallback)
   mirrorApiUrls: [
     'https://YOUR_WORKER.workers.dev/mirrors',
     'https://raw.githubusercontent.com/YOUR_USER/YOUR_REPO/main/mirrors_fallback.json'
   ],
-
-  // TTL кэша зеркал в миллисекундах
   cacheTtl: {
-    success:   4  * 3600 * 1000,  // 4 часа — успешные зеркала
-    fallback:  1  * 3600 * 1000,  // 1 час  — резервные зеркала
-    afterFail: 15 * 60   * 1000   // 15 мин — после сбоев
+    success:   4  * 3600 * 1000,
+    fallback:  1  * 3600 * 1000,
+    afterFail: 15 * 60   * 1000
   }
 };
 
-// ── MirrorResolver ───────────────────────────────────────────
 var MirrorResolver = (function () {
-
   var CACHE_KEY = 'adultjs_mirrors_cache';
   var _cache    = null;
 
-  // Реестр доменов и сигнатур парсеров
   var REGISTRY = {
-    bongacams:  {
-      domains:  ['https://ukr.bongacams.com', 'https://bongacams.com'],
-      testPath: '/new-models',
-      testSign: 'ls_thumb'
-    },
-    xvideos:    {
-      domains:  ['https://www.xv-ru.com', 'https://xvideos.com', 'https://xvideos2.com'],
-      testPath: '/new/1',
-      testSign: 'id="video'
-    },
-    xnxx:       {
-      domains:  ['https://www.xnxx-ru.com', 'https://xnxx.com', 'https://xnxx.gold'],
-      testPath: '/best/',
-      testSign: 'id="video_'
-    },
-    spankbang:  {
-      domains:  ['https://ru.spankbang.com', 'https://spankbang.com'],
-      testPath: '/new_videos/1/',
-      testSign: 'video-item'
-    },
-    chaturbate: {
-      domains:  ['https://chaturbate.com'],
-      testPath: '/api/ts/roomlist/room-list/?limit=5',
-      testSign: 'username'
-    },
-    eporner:    {
-      domains:  ['https://www.eporner.com', 'https://eporner.com'],
-      testPath: '/most-viewed/1/',
-      testSign: 'class="mb'
-    }
+    bongacams:  { domains: ['https://ukr.bongacams.com', 'https://bongacams.com'], testPath: '/new-models', testSign: 'ls_thumb' },
+    xvideos:    { domains: ['https://www.xv-ru.com', 'https://xvideos.com', 'https://xvideos2.com'], testPath: '/new/1', testSign: 'id="video' },
+    xnxx:       { domains: ['https://www.xnxx-ru.com', 'https://xnxx.com', 'https://xnxx.gold'], testPath: '/best/', testSign: 'id="video_' },
+    spankbang:  { domains: ['https://ru.spankbang.com', 'https://spankbang.com'], testPath: '/new_videos/1/', testSign: 'video-item' },
+    chaturbate: { domains: ['https://chaturbate.com'], testPath: '/api/ts/roomlist/room-list/?limit=5', testSign: 'username' },
+    eporner:    { domains: ['https://www.eporner.com', 'https://eporner.com'], testPath: '/most-viewed/1/', testSign: 'class="mb' }
   };
 
-  // ── Кэш ──────────────────────────────────────────────────
   function _loadCache() {
-    try {
-      var raw = localStorage.getItem(CACHE_KEY);
-      return raw ? JSON.parse(raw) : null;
-    } catch (e) { return null; }
+    try { var raw = localStorage.getItem(CACHE_KEY); return raw ? JSON.parse(raw) : null; }
+    catch (e) { return null; }
   }
 
   function _saveCache(data) {
@@ -113,35 +47,26 @@ var MirrorResolver = (function () {
 
   function _isCacheExpired(cache, afterFail) {
     if (!cache || !cache.updatedAt) return true;
-    var ttl = afterFail
-      ? AdultJS_Config.cacheTtl.afterFail
-      : AdultJS_Config.cacheTtl.success;
+    var ttl = afterFail ? AdultJS_Config.cacheTtl.afterFail : AdultJS_Config.cacheTtl.success;
     return (Date.now() - cache.updatedAt) > ttl;
   }
 
-  // ── HEAD-тест домена с redirect-guard ─────────────────────
   function testDomain(domain, timeoutMs) {
     timeoutMs = timeoutMs || 6000;
     return new Promise(function (resolve) {
       var startTs    = Date.now();
       var controller = null;
       var timer;
-
       try { controller = new AbortController(); } catch (e) {}
-
       timer = setTimeout(function () {
         if (controller) controller.abort();
         resolve({ ok: false, reason: 'timeout', domain: domain, latency: null });
       }, timeoutMs);
-
       var opts = { method: 'HEAD', redirect: 'follow' };
       if (controller) opts.signal = controller.signal;
-
       fetch(domain, opts).then(function (res) {
         clearTimeout(timer);
         var latency = Date.now() - startTs;
-
-        // Redirect-guard: убеждаемся что не попали на заглушку провайдера
         try {
           var expectedRoot = new URL(domain).hostname.split('.').slice(-2).join('.');
           var finalRoot    = new URL(res.url).hostname.split('.').slice(-2).join('.');
@@ -150,12 +75,8 @@ var MirrorResolver = (function () {
             return;
           }
         } catch (ex) {}
-
-        // 403 = сайт жив но блокирует HEAD — считаем рабочим
-        var alive = (res.status === 200 || res.status === 301 ||
-                     res.status === 302 || res.status === 403);
+        var alive = (res.status === 200 || res.status === 301 || res.status === 302 || res.status === 403);
         resolve({ ok: alive, reason: 'http_' + res.status, domain: domain, latency: latency });
-
       }).catch(function (err) {
         clearTimeout(timer);
         resolve({ ok: false, reason: err.message || 'net_error', domain: domain, latency: null });
@@ -163,512 +84,187 @@ var MirrorResolver = (function () {
     });
   }
 
-  // ── Проверка сигнатуры парсера ────────────────────────────
   function testParser(siteKey, domain) {
     var reg = REGISTRY[siteKey];
-    if (!reg || !reg.testPath || !reg.testSign) {
-      return Promise.resolve({ ok: true, reason: 'no_test' });
-    }
+    if (!reg || !reg.testPath || !reg.testSign) return Promise.resolve({ ok: true, reason: 'no_test' });
     var url = domain.replace(/\/$/, '') + reg.testPath;
-    return fetch(url, {
-      method: 'GET',
-      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }
-    })
-    .then(function (r) { return r.text(); })
-    .then(function (html) {
-      var ok = html.indexOf(reg.testSign) !== -1;
-      return { ok: ok, reason: ok ? 'parser_ok' : 'parser_signature_missing' };
-    })
-    .catch(function (e) {
-      return { ok: false, reason: e.message };
-    });
+    return fetch(url, { method: 'GET', headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' } })
+      .then(function (r) { return r.text(); })
+      .then(function (html) { var ok = html.indexOf(reg.testSign) !== -1; return { ok: ok, reason: ok ? 'parser_ok' : 'parser_signature_missing' }; })
+      .catch(function (e) { return { ok: false, reason: e.message }; });
   }
 
-  // ── Найти первый рабочий домен из списка ─────────────────
   function _resolveSite(domains) {
     var idx = 0;
     function tryNext() {
       if (idx >= domains.length) return Promise.resolve(null);
       var domain = domains[idx++];
-      return testDomain(domain, 6000).then(function (result) {
-        return result.ok ? domain : tryNext();
-      });
+      return testDomain(domain, 6000).then(function (result) { return result.ok ? domain : tryNext(); });
     }
     return tryNext();
   }
 
-  // ── Получить зеркала из удалённого API ────────────────────
   function _fetchRemoteMirrors() {
     var idx = 0;
     function tryNext() {
       if (idx >= AdultJS_Config.mirrorApiUrls.length) return Promise.resolve(null);
       var url = AdultJS_Config.mirrorApiUrls[idx++];
-      return fetch(url)
-        .then(function (r) { return r.json(); })
-        .catch(function () { return tryNext(); });
+      return fetch(url).then(function (r) { return r.json(); }).catch(function () { return tryNext(); });
     }
     return tryNext();
   }
 
-  // ── Основной метод: обновить все зеркала ─────────────────
   function resolve(force) {
     var cache = _loadCache();
     if (!force && !_isCacheExpired(cache)) {
       _cache = cache;
-      console.log('[MirrorResolver] Кэш актуален, обновлён:',
-        new Date(cache.updatedAt).toLocaleTimeString());
+      console.log('[MirrorResolver] Кэш актуален, обновлён:', new Date(cache.updatedAt).toLocaleTimeString());
       return Promise.resolve(cache.mirrors);
     }
-
     console.log('[MirrorResolver] Обновляем зеркала...');
-
     var siteKeys = Object.keys(REGISTRY);
     var promises = siteKeys.map(function (key) {
-      var reg = REGISTRY[key];
-      // Приоритет: закэшированный хост, потом известные домены
+      var reg     = REGISTRY[key];
       var domains = (cache && cache.mirrors && cache.mirrors[key])
-        ? [cache.mirrors[key]].concat(reg.domains.filter(function (d) {
-            return d !== cache.mirrors[key];
-          }))
+        ? [cache.mirrors[key]].concat(reg.domains.filter(function (d) { return d !== cache.mirrors[key]; }))
         : reg.domains;
-      return _resolveSite(domains).then(function (domain) {
-        return { key: key, domain: domain };
-      });
+      return _resolveSite(domains).then(function (domain) { return { key: key, domain: domain }; });
     });
-
     return Promise.all(promises).then(function (results) {
       var mirrors    = {};
       var failedKeys = [];
-
       results.forEach(function (r) {
-        if (r.domain) {
-          mirrors[r.key] = r.domain;
-        } else {
-          failedKeys.push(r.key);
-          mirrors[r.key] = REGISTRY[r.key].domains[0]; // fallback
-        }
+        if (r.domain) { mirrors[r.key] = r.domain; }
+        else { failedKeys.push(r.key); mirrors[r.key] = REGISTRY[r.key].domains[0]; }
       });
-
       if (failedKeys.length === 0) {
         var ok = { mirrors: mirrors, updatedAt: Date.now(), hasFails: false };
-        _saveCache(ok);
-        _cache = ok;
+        _saveCache(ok); _cache = ok;
         console.log('[MirrorResolver] Все зеркала OK:', mirrors);
         return mirrors;
       }
-
-      // Есть сбои — обращаемся к Remote API
-      console.warn('[MirrorResolver] Сбой для:', failedKeys.join(', '),
-        '→ запрашиваем Mirror API...');
-
+      console.warn('[MirrorResolver] Сбой для:', failedKeys.join(', '), '→ запрашиваем Mirror API...');
       return _fetchRemoteMirrors().then(function (remote) {
         if (remote) {
           failedKeys.forEach(function (key) {
             var list = remote[key] || (remote.nexthub && remote.nexthub[key]);
-            if (list && Array.isArray(list) && list.length > 0) {
-              mirrors[key] = list[0];
-            }
+            if (list && Array.isArray(list) && list.length > 0) mirrors[key] = list[0];
           });
         }
-        // Сохраняем с сокращённым TTL (afterFail)
         var afterFailOffset = AdultJS_Config.cacheTtl.success - AdultJS_Config.cacheTtl.afterFail;
-        var fail = {
-          mirrors:   mirrors,
-          updatedAt: Date.now() - afterFailOffset,
-          hasFails:  true
-        };
-        _saveCache(fail);
-        _cache = fail;
+        var fail = { mirrors: mirrors, updatedAt: Date.now() - afterFailOffset, hasFails: true };
+        _saveCache(fail); _cache = fail;
         console.log('[MirrorResolver] Зеркала с fallback:', mirrors);
         return mirrors;
       });
     });
   }
 
-  // ── Синхронное получение активного хоста ─────────────────
   function getActiveHost(siteKey) {
     var c = _cache || _loadCache();
     if (c && c.mirrors && c.mirrors[siteKey]) return c.mirrors[siteKey];
     return REGISTRY[siteKey] ? REGISTRY[siteKey].domains[0] : null;
   }
 
-  return {
-    resolve:       resolve,
-    getActiveHost: getActiveHost,
-    testDomain:    testDomain,
-    testParser:    testParser,
-    REGISTRY:      REGISTRY
-  };
+  return { resolve: resolve, getActiveHost: getActiveHost, testDomain: testDomain, testParser: testParser, REGISTRY: REGISTRY };
 })();
 
 
-// ── SourceHealth — трекинг здоровья источников ───────────────
 var SourceHealth = (function () {
-
   var STORAGE_KEY = 'adultjs_health';
-  var BACKOFF_MS  = [0, 60000, 300000, 900000, 3600000]; // 0/1m/5m/15m/60m
+  var BACKOFF_MS  = [0, 60000, 300000, 900000, 3600000];
   var _state      = {};
 
   function _load() {
-    try {
-      var raw = localStorage.getItem(STORAGE_KEY);
-      _state = raw ? JSON.parse(raw) : {};
-    } catch (e) { _state = {}; }
+    try { var raw = localStorage.getItem(STORAGE_KEY); _state = raw ? JSON.parse(raw) : {}; }
+    catch (e) { _state = {}; }
     return _state;
   }
-
-  function _save() {
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(_state)); } catch (e) {}
-  }
-
+  function _save() { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(_state)); } catch (e) {} }
   function _get(name) {
     var k = (name || '').toLowerCase();
     if (!_state[k]) _state[k] = { failCount: 0, disabledUntil: 0, success: 0, total: 0 };
     return _state[k];
   }
-
-  _load(); // Загружаем при старте
+  _load();
 
   return {
-    recordSuccess: function (name) {
-      var s = _get(name);
-      s.failCount = 0; s.disabledUntil = 0; s.success++; s.total++;
-      _save();
-    },
-
+    recordSuccess: function (name) { var s = _get(name); s.failCount = 0; s.disabledUntil = 0; s.success++; s.total++; _save(); },
     recordFail: function (name) {
-      var s = _get(name);
-      s.failCount++;
-      s.total++;
+      var s = _get(name); s.failCount++; s.total++;
       var idx = Math.min(s.failCount, BACKOFF_MS.length - 1);
-      s.disabledUntil = Date.now() + BACKOFF_MS[idx];
-      _save();
-      console.warn('[SourceHealth]', name, 'fail #' + s.failCount,
-        'отключён на', (BACKOFF_MS[idx] / 60000).toFixed(0) + 'мин');
+      s.disabledUntil = Date.now() + BACKOFF_MS[idx]; _save();
+      console.warn('[SourceHealth]', name, 'fail #' + s.failCount, 'отключён на', (BACKOFF_MS[idx] / 60000).toFixed(0) + 'мин');
     },
-
-    isDisabled: function (name) {
-      return _get(name).disabledUntil > Date.now();
-    },
-
-    getDisabledUntil: function (name) {
-      return _get(name).disabledUntil || 0;
-    },
-
-    getSuccessRate: function (name) {
-      var s = _get(name);
-      return s.total === 0 ? 1.0 : s.success / s.total;
-    },
-
-    getFailCount: function (name) {
-      return _get(name).failCount || 0;
-    },
-
-    reset: function (name) {
-      var k = (name || '').toLowerCase();
-      _state[k] = { failCount: 0, disabledUntil: 0, success: 0, total: 0 };
-      _save();
-    },
-
+    isDisabled:       function (name) { return _get(name).disabledUntil > Date.now(); },
+    getDisabledUntil: function (name) { return _get(name).disabledUntil || 0; },
+    getSuccessRate:   function (name) { var s = _get(name); return s.total === 0 ? 1.0 : s.success / s.total; },
+    getFailCount:     function (name) { return _get(name).failCount || 0; },
+    reset:    function (name) { var k = (name || '').toLowerCase(); _state[k] = { failCount: 0, disabledUntil: 0, success: 0, total: 0 }; _save(); },
     resetAll: function () { _state = {}; _save(); },
-
-    getAll: function () { return _state; }
+    getAll:   function () { return _state; }
   };
 })();
 
 
-// ── requestWithRetry — fetch с экспоненциальным backoff ───────
 function requestWithRetry(url, options, maxRetries) {
   maxRetries = (typeof maxRetries === 'number') ? maxRetries : 3;
   var delays = [500, 1500, 4000];
-
   function attempt(n) {
     return fetch(url, options || {}).then(function (res) {
       if (res.ok) return res;
-      // Постоянные ошибки — не ретраить
       if (res.status === 404 || res.status === 410 || res.status === 403) {
-        var e = new Error('no_retry:' + res.status);
-        e.status = res.status;
-        throw e;
+        var e = new Error('no_retry:' + res.status); e.status = res.status; throw e;
       }
       throw new Error('http_' + res.status);
     }).catch(function (err) {
       if (err.message && err.message.indexOf('no_retry:') === 0) throw err;
       if (n >= maxRetries) throw err;
       var delay = delays[n] !== undefined ? delays[n] : 4000;
-      console.log('[retry] attempt', (n + 1) + '/' + maxRetries,
-        '→ retry in', delay + 'ms |', err.message || err);
+      console.log('[retry] attempt', (n + 1) + '/' + maxRetries, '→ retry in', delay + 'ms |', err.message || err);
       return new Promise(function (resolve, reject) {
-        setTimeout(function () {
-          attempt(n + 1).then(resolve).catch(reject);
-        }, delay);
+        setTimeout(function () { attempt(n + 1).then(resolve).catch(reject); }, delay);
       });
     });
   }
-
   return attempt(0);
 }
 
 
-// ── AdultJS_ProxyAdapter — опциональный прокси через CF Worker
 var AdultJS_ProxyAdapter = (function () {
-
-  function buildStreamUrl(videoUrl) {
-    return AdultJS_Config.workerUrl + '/stream?url=' + encodeURIComponent(videoUrl);
-  }
-
-  function isVideoUrl(url) {
-    return /\.(mp4|m3u8|webm|ts)(\?|$)/i.test(url)
-        || url.indexOf('/get_file/')   !== -1
-        || url.indexOf('chunks.m3u8') !== -1
-        || url.indexOf('/hls/')        !== -1;
-  }
-
-  function patchVideoUrl(url) {
-    if (!AdultJS_Config.proxyEnabled || !url) return url;
-    if (!isVideoUrl(url)) return url;
-    return buildStreamUrl(url);
-  }
-
-  return {
-    buildStreamUrl: buildStreamUrl,
-    patchVideoUrl:  patchVideoUrl,
-    isVideoUrl:     isVideoUrl
-  };
+  function buildStreamUrl(videoUrl) { return AdultJS_Config.workerUrl + '/stream?url=' + encodeURIComponent(videoUrl); }
+  function isVideoUrl(url) { return /\.(mp4|m3u8|webm|ts)(\?|$)/i.test(url) || url.indexOf('/get_file/') !== -1 || url.indexOf('chunks.m3u8') !== -1 || url.indexOf('/hls/') !== -1; }
+  function patchVideoUrl(url) { if (!AdultJS_Config.proxyEnabled || !url) return url; if (!isVideoUrl(url)) return url; return buildStreamUrl(url); }
+  return { buildStreamUrl: buildStreamUrl, patchVideoUrl: patchVideoUrl, isVideoUrl: isVideoUrl };
 })();
 
 // ============================================================
-// [BLOCK:00:END] ADULTJS MODULES v2.0.0
+// [BLOCK:01] POLYFILLS
 // ============================================================
-
-
-// ============================================================
-// [BLOCK:01:START] POLYFILLS — вспомогательные функции Babel
-// ============================================================
-function _toConsumableArray(e) {
-  return _arrayWithoutHoles(e) || _iterableToArray(e) || _unsupportedIterableToArray(e) || _nonIterableSpread()
-}
-function _nonIterableSpread() {
-  throw new TypeError("Invalid attempt to spread non-iterable instance.\nIn order to be iterable, non-array objects must have a [Symbol.iterator]() method.")
-}
-function _iterableToArray(e) {
-  if ("undefined" != typeof Symbol && null != e[Symbol.iterator] || null != e["@@iterator"]) return Array.from(e)
-}
-function _arrayWithoutHoles(e) {
-  if (Array.isArray(e)) return _arrayLikeToArray(e)
-}
-function _slicedToArray(e, t) {
-  return _arrayWithHoles(e) || _iterableToArrayLimit(e, t) || _unsupportedIterableToArray(e, t) || _nonIterableRest()
-}
-function _nonIterableRest() {
-  throw new TypeError("Invalid attempt to destructure non-iterable instance.\nIn order to be iterable, non-array objects must have a [Symbol.iterator]() method.")
-}
-function _iterableToArrayLimit(e, t) {
-  var a = null == e ? null : "undefined" != typeof Symbol && e[Symbol.iterator] || e["@@iterator"];
-  if (null != a) {
-    var n, r, i, o, s = [], l = !0, c = !1;
-    try {
-      if (i = (a = a.call(e)).next, 0 === t) {
-        if (Object(a) !== a) return;
-        l = !1
-      } else for (; !(l = (n = i.call(a)).done) && (s.push(n.value), s.length !== t); l = !0);
-    } catch (e) { c = !0, r = e }
-    finally {
-      try { if (!l && null != a.return && (o = a.return(), Object(o) !== o)) return }
-      finally { if (c) throw r }
-    }
-    return s
-  }
-}
-function _arrayWithHoles(e) { if (Array.isArray(e)) return e }
-function _createForOfIteratorHelper(e, t) {
-  var a = "undefined" != typeof Symbol && e[Symbol.iterator] || e["@@iterator"];
-  if (!a) {
-    if (Array.isArray(e) || (a = _unsupportedIterableToArray(e)) || t && e && "number" == typeof e.length) {
-      a && (e = a);
-      var n = 0, r = function () {};
-      return {
-        s: r,
-        n: function () { return n >= e.length ? { done: !0 } : { done: !1, value: e[n++] } },
-        e: function (e) { throw e },
-        f: r
-      }
-    }
-    throw new TypeError("Invalid attempt to iterate non-iterable instance.\nIn order to be iterable, non-array objects must have a [Symbol.iterator]() method.")
-  }
-  var i, o = !0, s = !1;
-  return {
-    s: function () { a = a.call(e) },
-    n: function () { var e = a.next(); return o = e.done, e },
-    e: function (e) { s = !0, i = e },
-    f: function () {
-      try { o || null == a.return || a.return() }
-      finally { if (s) throw i }
-    }
-  }
-}
-function _unsupportedIterableToArray(e, t) {
-  if (e) {
-    if ("string" == typeof e) return _arrayLikeToArray(e, t);
-    var a = {}.toString.call(e).slice(8, -1);
-    return "Object" === a && e.constructor && (a = e.constructor.name),
-      "Map" === a || "Set" === a ? Array.from(e) :
-        "Arguments" === a || /^(?:Ui|I)nt(?:8|16|32)(?:Clamped)?Array$/.test(a) ? _arrayLikeToArray(e, t) : void 0
-  }
-}
-function _arrayLikeToArray(e, t) {
-  (null == t || t > e.length) && (t = e.length);
-  for (var a = 0, n = Array(t); a < t; a++) n[a] = e[a];
-  return n
-}
-function _typeof(e) {
-  return (_typeof = "function" == typeof Symbol && "symbol" == typeof Symbol.iterator
-    ? function (e) { return typeof e }
-    : function (e) {
-      return e && "function" == typeof Symbol && e.constructor === Symbol && e !== Symbol.prototype ? "symbol" : typeof e
-    }), _typeof(e)
-}
-function _regenerator() {
-  var e, t, a = "function" == typeof Symbol ? Symbol : {},
-    n = a.iterator || "@@iterator", r = a.toStringTag || "@@toStringTag";
-  function i(a, n, r, i) {
-    var l = n && n.prototype instanceof s ? n : s, c = Object.create(l.prototype);
-    return _regeneratorDefine2(c, "_invoke", function (a, n, r) {
-      var i, s, l, c = 0, u = r || [], p = !1,
-        d = {
-          p: 0, n: 0, v: e, a: h, f: h.bind(e, 4),
-          d: function (t, a) { return i = t, s = 0, l = e, d.n = a, o }
-        };
-      function h(a, n) {
-        for (s = a, l = n, t = 0; !p && c && !r && t < u.length; t++) {
-          var r, i = u[t], h = d.p, m = i[2];
-          a > 3 ? (r = m === n) && (l = i[(s = i[4]) ? 5 : (s = 3, 3)], i[4] = i[5] = e)
-            : i[0] <= h && ((r = a < 2 && h < i[1]) ? (s = 0, d.v = n, d.n = i[1])
-              : h < m && (r = a < 3 || i[0] > n || n > m) && (i[4] = a, i[5] = n, d.n = m, s = 0))
-        }
-        if (r || a > 1) return o;
-        throw p = !0, n
-      }
-      return function (r, u, m) {
-        if (c > 1) throw TypeError("Generator is already running");
-        for (p && 1 === u && h(u, m), s = u, l = m; (t = s < 2 ? e : l) || !p;) {
-          i || (s ? s < 3 ? (s > 1 && (d.n = -1), h(s, l)) : d.n = l : d.v = l);
-          try {
-            if (c = 2, i) {
-              if (s || (r = "next"), t = i[r]) {
-                if (!(t = t.call(i, l))) throw TypeError("iterator result is not an object");
-                if (!t.done) return t;
-                l = t.value, s < 2 && (s = 0)
-              } else (1 === s && (t = i.return) && t.call(i),
-                s < 2 && (l = TypeError("The iterator does not provide a '" + r + "' method"), s = 1));
-              i = e
-            } else if ((t = (p = d.n < 0) ? l : a.call(n, d)) !== o) break
-          } catch (t) { i = e, s = 1, l = t }
-          finally { c = 1 }
-        }
-        return { value: t, done: p }
-      }
-    }(a, r, i), !0), c
-  }
-  var o = {};
-  function s() {} function l() {} function c() {}
-  t = Object.getPrototypeOf;
-  var u = [][n] ? t(t([][n]())) : (_regeneratorDefine2(t = {}, n, function () { return this }), t),
-    p = c.prototype = s.prototype = Object.create(u);
-  function d(e) {
-    return Object.setPrototypeOf ? Object.setPrototypeOf(e, c)
-      : (e.__proto__ = c, _regeneratorDefine2(e, r, "GeneratorFunction")),
-      e.prototype = Object.create(p), e
-  }
-  return l.prototype = c, _regeneratorDefine2(p, "constructor", c), _regeneratorDefine2(c, "constructor", l),
-    l.displayName = "GeneratorFunction", _regeneratorDefine2(c, r, "GeneratorFunction"),
-    _regeneratorDefine2(p), _regeneratorDefine2(p, r, "Generator"),
-    _regeneratorDefine2(p, n, function () { return this }),
-    _regeneratorDefine2(p, "toString", function () { return "[object Generator]" }),
-    (_regenerator = function () { return { w: i, m: d } })()
-}
-function _regeneratorDefine2(e, t, a, n) {
-  var r = Object.defineProperty;
-  try { r({}, "", {}) } catch (e) { r = 0 }
-  _regeneratorDefine2 = function (e, t, a, n) {
-    if (t) r ? r(e, t, { value: a, enumerable: !n, configurable: !n, writable: !n }) : e[t] = a;
-    else {
-      var i = function (t, a) { _regeneratorDefine2(e, t, function (e) { return this._invoke(t, a, e) }) };
-      i("next", 0), i("throw", 1), i("return", 2)
-    }
-  }, _regeneratorDefine2(e, t, a, n)
-}
-function asyncGeneratorStep(e, t, a, n, r, i, o) {
-  try { var s = e[i](o), l = s.value } catch (e) { return void a(e) }
-  s.done ? t(l) : Promise.resolve(l).then(n, r)
-}
-function _asyncToGenerator(e) {
-  return function () {
-    var t = this, a = arguments;
-    return new Promise(function (n, r) {
-      var i = e.apply(t, a);
-      function o(e) { asyncGeneratorStep(i, n, r, o, s, "next", e) }
-      function s(e) { asyncGeneratorStep(i, n, r, o, s, "throw", e) }
-      o(void 0)
-    })
-  }
-}
-function ownKeys(e, t) {
-  var a = Object.keys(e);
-  if (Object.getOwnPropertySymbols) {
-    var n = Object.getOwnPropertySymbols(e);
-    t && (n = n.filter(function (t) { return Object.getOwnPropertyDescriptor(e, t).enumerable })),
-      a.push.apply(a, n)
-  }
-  return a
-}
-function _objectSpread(e) {
-  for (var t = 1; t < arguments.length; t++) {
-    var a = null != arguments[t] ? arguments[t] : {};
-    t % 2 ? ownKeys(Object(a), !0).forEach(function (t) { _defineProperty(e, t, a[t]) })
-      : Object.getOwnPropertyDescriptors
-        ? Object.defineProperties(e, Object.getOwnPropertyDescriptors(a))
-        : ownKeys(Object(a)).forEach(function (t) { Object.defineProperty(e, t, Object.getOwnPropertyDescriptor(a, t)) })
-  }
-  return e
-}
-function _defineProperty(e, t, a) {
-  return (t = _toPropertyKey(t)) in e
-    ? Object.defineProperty(e, t, { value: a, enumerable: !0, configurable: !0, writable: !0 })
-    : e[t] = a, e
-}
-function _classCallCheck(e, t) {
-  if (!(e instanceof t)) throw new TypeError("Cannot call a class as a function")
-}
-function _defineProperties(e, t) {
-  for (var a = 0; a < t.length; a++) {
-    var n = t[a];
-    n.enumerable = n.enumerable || !1, n.configurable = !0,
-      "value" in n && (n.writable = !0), Object.defineProperty(e, _toPropertyKey(n.key), n)
-  }
-}
-function _createClass(e, t, a) {
-  return t && _defineProperties(e.prototype, t), a && _defineProperties(e, a),
-    Object.defineProperty(e, "prototype", { writable: !1 }), e
-}
-function _toPropertyKey(e) {
-  var t = _toPrimitive(e, "string");
-  return "symbol" == _typeof(t) ? t : t + ""
-}
-function _toPrimitive(e, t) {
-  if ("object" != _typeof(e) || !e) return e;
-  var a = e[Symbol.toPrimitive];
-  if (void 0 !== a) {
-    var n = a.call(e, t || "default");
-    if ("object" != _typeof(n)) return n;
-    throw new TypeError("@@toPrimitive must return a primitive value.")
-  }
-  return ("string" === t ? String : Number)(e)
-}
-// ============================================================
-// [BLOCK:01:END]
-// ============================================================
-
+function _toConsumableArray(e){return _arrayWithoutHoles(e)||_iterableToArray(e)||_unsupportedIterableToArray(e)||_nonIterableSpread()}
+function _nonIterableSpread(){throw new TypeError("Invalid attempt to spread non-iterable instance.\nIn order to be iterable, non-array objects must have a [Symbol.iterator]() method.")}
+function _iterableToArray(e){if("undefined"!=typeof Symbol&&null!=e[Symbol.iterator]||null!=e["@@iterator"])return Array.from(e)}
+function _arrayWithoutHoles(e){if(Array.isArray(e))return _arrayLikeToArray(e)}
+function _slicedToArray(e,t){return _arrayWithHoles(e)||_iterableToArrayLimit(e,t)||_unsupportedIterableToArray(e,t)||_nonIterableRest()}
+function _nonIterableRest(){throw new TypeError("Invalid attempt to destructure non-iterable instance.\nIn order to be iterable, non-array objects must have a [Symbol.iterator]() method.")}
+function _iterableToArrayLimit(e,t){var a=null==e?null:"undefined"!=typeof Symbol&&e[Symbol.iterator]||e["@@iterator"];if(null!=a){var n,r,i,o,s=[],l=!0,c=!1;try{if(i=(a=a.call(e)).next,0===t){if(Object(a)!==a)return;l=!1}else for(;!(l=(n=i.call(a)).done)&&(s.push(n.value),s.length!==t);l=!0);}catch(e){c=!0,r=e}finally{try{if(!l&&null!=a.return&&(o=a.return(),Object(o)!==o))return}finally{if(c)throw r}}return s}}
+function _arrayWithHoles(e){if(Array.isArray(e))return e}
+function _createForOfIteratorHelper(e,t){var a="undefined"!=typeof Symbol&&e[Symbol.iterator]||e["@@iterator"];if(!a){if(Array.isArray(e)||(a=_unsupportedIterableToArray(e))||t&&e&&"number"==typeof e.length){a&&(e=a);var n=0,r=function(){};return{s:r,n:function(){return n>=e.length?{done:!0}:{done:!1,value:e[n++]}},e:function(e){throw e},f:r}}throw new TypeError("Invalid attempt to iterate non-iterable instance.\nIn order to be iterable, non-array objects must have a [Symbol.iterator]() method.")}var i,o=!0,s=!1;return{s:function(){a=a.call(e)},n:function(){var e=a.next();return o=e.done,e},e:function(e){s=!0,i=e},f:function(){try{o||null==a.return||a.return()}finally{if(s)throw i}}}}
+function _unsupportedIterableToArray(e,t){if(e){if("string"==typeof e)return _arrayLikeToArray(e,t);var a={}.toString.call(e).slice(8,-1);return"Object"===a&&e.constructor&&(a=e.constructor.name),"Map"===a||"Set"===a?Array.from(e):"Arguments"===a||/^(?:Ui|I)nt(?:8|16|32)(?:Clamped)?Array$/.test(a)?_arrayLikeToArray(e,t):void 0}}
+function _arrayLikeToArray(e,t){(null==t||t>e.length)&&(t=e.length);for(var a=0,n=Array(t);a<t;a++)n[a]=e[a];return n}
+function _typeof(e){return(_typeof="function"==typeof Symbol&&"symbol"==typeof Symbol.iterator?function(e){return typeof e}:function(e){return e&&"function"==typeof Symbol&&e.constructor===Symbol&&e!==Symbol.prototype?"symbol":typeof e}),_typeof(e)}
+function _regenerator(){var e,t,a="function"==typeof Symbol?Symbol:{},n=a.iterator||"@@iterator",r=a.toStringTag||"@@toStringTag";function i(a,n,r,i){var l=n&&n.prototype instanceof s?n:s,c=Object.create(l.prototype);return _regeneratorDefine2(c,"_invoke",function(a,n,r){var i,s,l,c=0,u=r||[],p=!1,d={p:0,n:0,v:e,a:h,f:h.bind(e,4),d:function(t,a){return i=t,s=0,l=e,d.n=a,o}};function h(a,n){for(s=a,l=n,t=0;!p&&c&&!r&&t<u.length;t++){var r,i=u[t],h=d.p,m=i[2];a>3?(r=m===n)&&(l=i[(s=i[4])?5:(s=3,3)],i[4]=i[5]=e):i[0]<=h&&((r=a<2&&h<i[1])?(s=0,d.v=n,d.n=i[1]):h<m&&(r=a<3||i[0]>n||n>m)&&(i[4]=a,i[5]=n,d.n=m,s=0))}if(r||a>1)return o;throw p=!0,n}return function(r,u,m){if(c>1)throw TypeError("Generator is already running");for(p&&1===u&&h(u,m),s=u,l=m;(t=s<2?e:l)||!p;){i||(s?s<3?(s>1&&(d.n=-1),h(s,l)):d.n=l:d.v=l);try{if(c=2,i){if(s||(r="next"),t=i[r]){if(!(t=t.call(i,l)))throw TypeError("iterator result is not an object");if(!t.done)return t;l=t.value,s<2&&(s=0)}else(1===s&&(t=i.return)&&t.call(i),s<2&&(l=TypeError("The iterator does not provide a '"+r+"' method"),s=1));i=e}else if((t=(p=d.n<0)?l:a.call(n,d))!==o)break}catch(t){i=e,s=1,l=t}finally{c=1}}return{value:t,done:p}}}(a,r,i),!0),c}var o={};function s(){}function l(){}function c(){}t=Object.getPrototypeOf;var u=[][n]?t(t([][n]()):(_regeneratorDefine2(t={},n,function(){return this}),t),p=c.prototype=s.prototype=Object.create(u);function d(e){return Object.setPrototypeOf?Object.setPrototypeOf(e,c):(e.__proto__=c,_regeneratorDefine2(e,r,"GeneratorFunction")),e.prototype=Object.create(p),e}return l.prototype=c,_regeneratorDefine2(p,"constructor",c),_regeneratorDefine2(c,"constructor",l),l.displayName="GeneratorFunction",_regeneratorDefine2(c,r,"GeneratorFunction"),_regeneratorDefine2(p),_regeneratorDefine2(p,r,"Generator"),_regeneratorDefine2(p,n,function(){return this}),_regeneratorDefine2(p,"toString",function(){return"[object Generator]"}),(_regenerator=function(){return{w:i,m:d}})()}
+function _regeneratorDefine2(e,t,a,n){var r=Object.defineProperty;try{r({},"",{})}catch(e){r=0}_regeneratorDefine2=function(e,t,a,n){if(t)r?r(e,t,{value:a,enumerable:!n,configurable:!n,writable:!n}):e[t]=a;else{var i=function(t,a){_regeneratorDefine2(e,t,function(e){return this._invoke(t,a,e)})};i("next",0),i("throw",1),i("return",2)}},_regeneratorDefine2(e,t,a,n)}
+function asyncGeneratorStep(e,t,a,n,r,i,o){try{var s=e[i](o),l=s.value}catch(e){return void a(e)}s.done?t(l):Promise.resolve(l).then(n,r)}
+function _asyncToGenerator(e){return function(){var t=this,a=arguments;return new Promise(function(n,r){var i=e.apply(t,a);function o(e){asyncGeneratorStep(i,n,r,o,s,"next",e)}function s(e){asyncGeneratorStep(i,n,r,o,s,"throw",e)}o(void 0)})}}
+function ownKeys(e,t){var a=Object.keys(e);if(Object.getOwnPropertySymbols){var n=Object.getOwnPropertySymbols(e);t&&(n=n.filter(function(t){return Object.getOwnPropertyDescriptor(e,t).enumerable})),a.push.apply(a,n)}return a}
+function _objectSpread(e){for(var t=1;t<arguments.length;t++){var a=null!=arguments[t]?arguments[t]:{};t%2?ownKeys(Object(a),!0).forEach(function(t){_defineProperty(e,t,a[t])}):Object.getOwnPropertyDescriptors?Object.defineProperties(e,Object.getOwnPropertyDescriptors(a)):ownKeys(Object(a)).forEach(function(t){Object.defineProperty(e,t,Object.getOwnPropertyDescriptor(a,t))})}return e}
+function _defineProperty(e,t,a){return(t=_toPropertyKey(t))in e?Object.defineProperty(e,t,{value:a,enumerable:!0,configurable:!0,writable:!0}):e[t]=a,e}
+function _classCallCheck(e,t){if(!(e instanceof t))throw new TypeError("Cannot call a class as a function")}
+function _defineProperties(e,t){for(var a=0;a<t.length;a++){var n=t[a];n.enumerable=n.enumerable||!1,n.configurable=!0,"value"in n&&(n.writable=!0),Object.defineProperty(e,_toPropertyKey(n.key),n)}}
+function _createClass(e,t,a){return t&&_defineProperties(e.prototype,t),a&&_defineProperties(e,a),Object.defineProperty(e,"prototype",{writable:!1}),e}
+function _toPropertyKey(e){var t=_toPrimitive(e,"string");return"symbol"==_typeof(t)?t:t+""}
+function _toPrimitive(e,t){if("object"!=_typeof(e)||!e)return e;var a=e[Symbol.toPrimitive];if(void 0!==a){var n=a.call(e,t||"default");if("object"!=_typeof(n))return n;throw new TypeError("@@toPrimitive must return a primitive value.")}return("string"===t?String:Number)(e)}
 
 // ============================================================
 // [SECTION: MAIN PLUGIN IIFE]
@@ -677,16 +273,8 @@ function _toPrimitive(e, t) {
   !function () {
     var e = "AdultJS";
 
-    // --------------------------------------------------------
-    // [BLOCK:02:START] LANG
-    // --------------------------------------------------------
     Lampa.Lang.add({
-      lampac_adultName: {
-        ru: "Adult JS",
-        en: "Adult 18+",
-        uk: "Для взрослих",
-        zh: "Adult 18+"
-      }
+      lampac_adultName: { ru: "Adult JS", en: "Adult 18+", uk: "Для взрослих", zh: "Adult 18+" }
     });
 
     var t, a, n = new Lampa.Reguest;
@@ -710,24 +298,16 @@ function _toPrimitive(e, t) {
     }
 
     var o, s = {
-      sourceTitle: function (e) {
-        return Lampa.Utils.capitalizeFirstLetter(e.split(".")[0])
-      },
+      sourceTitle: function (e) { return Lampa.Utils.capitalizeFirstLetter(e.split(".")[0]) },
       play: function (e) {
         var t = Lampa.Controller.enabled().name;
         if (e.json)
           (Lampa.Loading.start(function () { n.clear(), Lampa.Loading.stop() }),
             l.qualitys(e.video, function (a) {
-              if (a.error)
-                return Lampa.Noty.show(Lampa.Lang.translate("torrent_parser_nofiles")),
-                  void Lampa.Loading.stop();
+              if (a.error) return Lampa.Noty.show(Lampa.Lang.translate("torrent_parser_nofiles")), void Lampa.Loading.stop();
               var n = a.qualitys || a, i = a.recomends || [];
               Lampa.Loading.stop();
-              var o = {
-                title: e.name, url: r(n),
-                url_reserve: !!a.qualitys_proxy && r(a.qualitys_proxy),
-                quality: n, headers: a.headers_stream
-              };
+              var o = { title: e.name, url: r(n), url_reserve: !!a.qualitys_proxy && r(a.qualitys_proxy), quality: n, headers: a.headers_stream };
               Lampa.Player.play(o),
                 i.length
                   ? (i.forEach(function (e) {
@@ -742,18 +322,9 @@ function _toPrimitive(e, t) {
                       }
                   }), Lampa.Player.playlist(i))
                   : Lampa.Player.playlist([o]),
-                Lampa.Player.callback(function () { Lampa.Controller.toggle(t) })
-            }, function () {
-              Lampa.Noty.show(Lampa.Lang.translate("torrent_parser_nofiles")),
-                Lampa.Loading.stop()
-            }));
+                Lampa.Player.callback(function () { Lampa.Controller.toggle(t) }));
         else {
-          var a = {
-            title: e.name, url: r(e.qualitys) || e.video,
-            url_reserve: r(e.qualitys_proxy) || e.video_reserve || "",
-            quality: e.qualitys
-          };
-          // [v2.0.0] Применить прокси если включён
+          var a = { title: e.name, url: r(e.qualitys) || e.video, url_reserve: r(e.qualitys_proxy) || e.video_reserve || "", quality: e.qualitys };
           if (AdultJS_Config.proxyEnabled) {
             if (a.url)         a.url         = AdultJS_ProxyAdapter.patchVideoUrl(a.url);
             if (a.url_reserve) a.url_reserve = AdultJS_ProxyAdapter.patchVideoUrl(a.url_reserve);
@@ -774,12 +345,11 @@ function _toPrimitive(e, t) {
             var t, r = e.find("video"), i = e.find(".sisi-video-preview");
             r || (r = document.createElement("video"),
               (i = document.createElement("div")).addClass("sisi-video-preview"),
-              i.style.position = "absolute", i.style.width = "100%",
-              i.style.height = "100%", i.style.left = "0", i.style.top = "0",
-              i.style.overflow = "hidden", i.style.borderRadius = "1em",
-              r.style.position = "absolute", r.style.width = "100%",
-              r.style.height = "100%", r.style.left = "0", r.style.top = "0",
-              r.style.objectFit = "cover", i.append(r),
+              i.style.position = "absolute", i.style.width = "100%", i.style.height = "100%",
+              i.style.left = "0", i.style.top = "0", i.style.overflow = "hidden",
+              i.style.borderRadius = "1em", r.style.position = "absolute",
+              r.style.width = "100%", r.style.height = "100%", r.style.left = "0",
+              r.style.top = "0", r.style.objectFit = "cover", i.append(r),
               e.find(".card__view").append(i), r.src = n.preview,
               r.addEventListener("ended", function () { i.addClass("hide") }), r.load()),
               a = i;
@@ -789,9 +359,7 @@ function _toPrimitive(e, t) {
         }, 1500)
       },
       hidePreview: i,
-      fixList: function (e) {
-        return e.forEach(function (e) { !e.quality && e.time && (e.quality = e.time) }), e
-      },
+      fixList: function (e) { return e.forEach(function (e) { !e.quality && e.time && (e.quality = e.time) }), e },
       menu: function (t, a) {
         var n = [];
         a.related && n.push({ title: "Похожие", related: !0 }),
@@ -799,13 +367,8 @@ function _toPrimitive(e, t) {
           Lampa.Select.show({
             title: "Меню", items: n,
             onSelect: function (t) {
-              t.model ? Lampa.Activity.push({
-                url: a.model.uri, title: "Модель - " + a.model.name,
-                component: "sisi_view_" + e, page: 1
-              }) : t.related && Lampa.Activity.push({
-                url: a.video + "&related", title: "Похожие - " + a.title,
-                component: "sisi_view_" + e, page: 1
-              })
+              t.model ? Lampa.Activity.push({ url: a.model.uri, title: "Модель - " + a.model.name, component: "sisi_view_" + e, page: 1 })
+                : t.related && Lampa.Activity.push({ url: a.video + "&related", title: "Похожие - " + a.title, component: "sisi_view_" + e, page: 1 })
             },
             onBack: function () { Lampa.Controller.toggle("content") }
           })
@@ -820,142 +383,111 @@ function _toPrimitive(e, t) {
         var a = AdultJS.Menu();
         a ? e(o = a) : t(a.msg)
       },
-        this.view = function (e, t, a) {
-          AdultJS.Invoke(Lampa.Utils.addUrlComponent(e.url, "pg=" + (e.page || 1)))
-            .then(function (e) {
-              e.list
-                ? (e.results = s.fixList(e.list), e.collection = !0,
-                  e.total_pages = e.total_pages || 30, s.fixCards(e.results),
-                  delete e.list, t(e))
-                : a()
-            }).catch(function () {
-              console.log("AdultJS", "no load", e.url), a()
-            })
-        },
+      this.view = function (e, t, a) {
+        AdultJS.Invoke(Lampa.Utils.addUrlComponent(e.url, "pg=" + (e.page || 1)))
+          .then(function (e) {
+            e.list
+              ? (e.results = s.fixList(e.list), e.collection = !0, e.total_pages = e.total_pages || 30,
+                s.fixCards(e.results), delete e.list, t(e))
+              : a()
+          }).catch(function () { console.log("AdultJS", "no load", e.url), a() })
+      },
 
-        // --------------------------------------------------------
-        // [v2.0.0] playlist() — SourceHealth фильтрация + сортировка
-        // --------------------------------------------------------
-        this.playlist = function (t, a, n) {
-          var _run = function () {
-            // Фильтруем отключённые источники
-            var activeSources = o.filter(function (src) {
-              var name = src.title.toLowerCase().replace(/^[🟢🟡🔴]\s*/, '').trim();
-              if (SourceHealth.isDisabled(name)) {
-                var until = new Date(SourceHealth.getDisabledUntil(name)).toLocaleTimeString();
-                console.log('[playlist] Пропускаем', name, '— отключён до', until);
-                return false;
-              }
-              return true;
-            });
-
-            if (activeSources.length === 0) {
-              console.warn('[playlist] Все источники отключены');
-              n();
-              return;
+      this.playlist = function (t, a, n) {
+        var _run = function () {
+          var activeSources = o.filter(function (src) {
+            var name = src.title.toLowerCase().replace(/^[🟢🟡🔴]\s*/, '').trim();
+            if (SourceHealth.isDisabled(name)) {
+              var until = new Date(SourceHealth.getDisabledUntil(name)).toLocaleTimeString();
+              console.log('[playlist] Пропускаем', name, '— отключён до', until);
+              return false;
             }
+            return true;
+          });
 
-            // Сортируем по successRate (лучшие — первыми)
-            activeSources.sort(function (x, y) {
-              var nx = x.title.toLowerCase().replace(/^[🟢🟡🔴]\s*/, '').trim();
-              var ny = y.title.toLowerCase().replace(/^[🟢🟡🔴]\s*/, '').trim();
-              return SourceHealth.getSuccessRate(ny) - SourceHealth.getSuccessRate(nx);
-            });
+          if (activeSources.length === 0) { console.warn('[playlist] Все источники отключены'); n(); return; }
 
-            var statusObj = new Lampa.Status(activeSources.length);
-            statusObj.onComplite = function (e) {
-              var t = [];
-              activeSources.forEach(function (a) {
-                e[a.playlist_url] && e[a.playlist_url].results.length && t.push(e[a.playlist_url])
-              });
-              t.length ? a(t) : n();
-            };
+          activeSources.sort(function (x, y) {
+            var nx = x.title.toLowerCase().replace(/^[🟢🟡🔴]\s*/, '').trim();
+            var ny = y.title.toLowerCase().replace(/^[🟢🟡🔴]\s*/, '').trim();
+            return SourceHealth.getSuccessRate(ny) - SourceHealth.getSuccessRate(nx);
+          });
 
-            activeSources.forEach(function (a) {
-              var sourceName = a.title.toLowerCase().replace(/^[🟢🟡🔴]\s*/, '').trim();
-              var r = a.playlist_url.indexOf("?") !== -1 ? "&" : "?";
-              var i = (t.indexOf("?") !== -1 || t.indexOf("&") !== -1) ? t.substring(1) : t;
-              var failed = false;
-
-              var timer = setTimeout(function () {
-                failed = true;
-                SourceHealth.recordFail(sourceName);
-                statusObj.error();
-              }, 8e3);
-
-              AdultJS.Invoke(a.playlist_url + r + i)
-                .then(function (t) {
-                  clearTimeout(timer);
-                  if (failed) return;
-                  if (t.list) {
-                    SourceHealth.recordSuccess(sourceName);
-                    t.title        = s.sourceTitle(a.title);
-                    t.results      = s.fixList(t.list);
-                    t.url          = a.playlist_url;
-                    t.collection   = true;
-                    t.line_type    = "none";
-                    t.card_events  = {
-                      onMenu:  s.menu,
-                      onEnter: function (e, t) { s.hidePreview(); s.play(t); }
-                    };
-                    s.fixCards(t.results);
-                    delete t.list;
-                    statusObj.append(a.playlist_url, t);
-                  } else {
-                    SourceHealth.recordFail(sourceName);
-                    statusObj.error();
-                  }
-                })
-                .catch(function () {
-                  clearTimeout(timer);
-                  if (failed) return;
-                  SourceHealth.recordFail(sourceName);
-                  console.log("AdultJS", "no load", a.playlist_url + r + i);
-                  statusObj.error();
-                });
-            });
+          var statusObj = new Lampa.Status(activeSources.length);
+          statusObj.onComplite = function (e) {
+            var t = [];
+            activeSources.forEach(function (a) { e[a.playlist_url] && e[a.playlist_url].results.length && t.push(e[a.playlist_url]) });
+            t.length ? a(t) : n();
           };
 
-          o ? _run() : e.menu(_run, n);
-        },
+          activeSources.forEach(function (a) {
+            var sourceName = a.title.toLowerCase().replace(/^[🟢🟡🔴]\s*/, '').trim();
+            var r = a.playlist_url.indexOf("?") !== -1 ? "&" : "?";
+            var i = (t.indexOf("?") !== -1 || t.indexOf("&") !== -1) ? t.substring(1) : t;
+            var failed = false;
 
-        this.main = function (e, t, a) { this.playlist("", t, a) },
-        this.search = function (e, t, a) {
-          this.playlist("?search=" + encodeURIComponent(e.query), t, a)
-        },
-        this.qualitys = function (e, t, a) {
-          AdultJS.Invoke(e).then(t).catch(function (t) {
-            console.log("AdultJS", "no load", e), a()
-          })
-        },
-        this.clear = function () { t.clear() }
+            var timer = setTimeout(function () {
+              failed = true;
+              SourceHealth.recordFail(sourceName);
+              statusObj.error();
+            }, 8e3);
+
+            AdultJS.Invoke(a.playlist_url + r + i)
+              .then(function (t) {
+                clearTimeout(timer);
+                if (failed) return;
+                if (t.list) {
+                  SourceHealth.recordSuccess(sourceName);
+                  t.title       = s.sourceTitle(a.title);
+                  t.results     = s.fixList(t.list);
+                  t.url         = a.playlist_url;
+                  t.collection  = true;
+                  t.line_type   = "none";
+                  t.card_events = { onMenu: s.menu, onEnter: function (e, t) { s.hidePreview(); s.play(t); } };
+                  s.fixCards(t.results);
+                  delete t.list;
+                  statusObj.append(a.playlist_url, t);
+                } else {
+                  SourceHealth.recordFail(sourceName);
+                  statusObj.error();
+                }
+              })
+              .catch(function () {
+                clearTimeout(timer);
+                if (failed) return;
+                SourceHealth.recordFail(sourceName);
+                console.log("AdultJS", "no load", a.playlist_url + r + i);
+                statusObj.error();
+              });
+          });
+        };
+
+        o ? _run() : e.menu(_run, n);
+      },
+
+      this.main    = function (e, t, a) { this.playlist("", t, a) },
+      this.search  = function (e, t, a) { this.playlist("?search=" + encodeURIComponent(e.query), t, a) },
+      this.qualitys = function (e, t, a) { AdultJS.Invoke(e).then(t).catch(function (t) { console.log("AdultJS", "no load", e), a() }) },
+      this.clear   = function () { t.clear() }
     };
 
     function c(t) {
       var a = new Lampa.InteractionMain(t);
       return a.create = function () {
-        return this.activity.loader(!0),
-          l.main(t, this.build.bind(this), this.empty.bind(this)), this.render()
+        return this.activity.loader(!0), l.main(t, this.build.bind(this), this.empty.bind(this)), this.render()
       },
-        a.empty = function (e) {
-          var t = this, a = new Lampa.Empty({
-            descr: "string" == typeof e ? e : Lampa.Lang.translate("empty_text_two")
-          });
-          Lampa.Activity.all().forEach(function (e) {
-            t.activity == e.activity &&
-              e.activity.render().find(".activity__body > div")[0].appendChild(a.render(!0))
-          }),
-            this.start = a.start.bind(a), this.activity.loader(!1), this.activity.toggle()
-        },
-        a.onMore = function (t) {
-          Lampa.Activity.push({ url: t.url, title: t.title, component: "sisi_view_" + e, page: 2 })
-        },
-        a.onAppend = function (e, t) {
-          e.onAppend = function (e) {
-            var t = e.onFocus;
-            e.onFocus = function (e, a) { t(e, a), s.preview(e, a) }
-          }
-        }, a
+      a.empty = function (e) {
+        var t = this, a = new Lampa.Empty({ descr: "string" == typeof e ? e : Lampa.Lang.translate("empty_text_two") });
+        Lampa.Activity.all().forEach(function (e) { t.activity == e.activity && e.activity.render().find(".activity__body > div")[0].appendChild(a.render(!0)) }),
+          this.start = a.start.bind(a), this.activity.loader(!1), this.activity.toggle()
+      },
+      a.onMore = function (t) { Lampa.Activity.push({ url: t.url, title: t.title, component: "sisi_view_" + e, page: 2 }) },
+      a.onAppend = function (e, t) {
+        e.onAppend = function (e) {
+          var t = e.onFocus;
+          e.onFocus = function (e, a) { t(e, a), s.preview(e, a) }
+        }
+      }, a
     }
 
     function u(t) {
@@ -967,82 +499,60 @@ function _toPrimitive(e, t) {
             (a = t.menu) && a.forEach(function (e) {
               var t = e.title.split(":");
               e.title = t[0].trim(),
-                t[1] && (e.subtitle = Lampa.Utils.capitalizeFirstLetter(
-                  t[1].trim().replace(/all/i, "Любой"))),
-                e.submenu && e.submenu.forEach(function (e) {
-                  e.title = Lampa.Utils.capitalizeFirstLetter(e.title.trim().replace(/all/i, "Любой"))
-                })
-            }), e.build(t),
-              n.render().find(".category-full").addClass("mapping--grid cols--3")
+                t[1] && (e.subtitle = Lampa.Utils.capitalizeFirstLetter(t[1].trim().replace(/all/i, "Любой"))),
+                e.submenu && e.submenu.forEach(function (e) { e.title = Lampa.Utils.capitalizeFirstLetter(e.title.trim().replace(/all/i, "Любой")) })
+            }), e.build(t), n.render().find(".category-full").addClass("mapping--grid cols--3")
           }, this.empty.bind(this))
       },
-        n.nextPageReuest = function (e, t, a) { l.view(e, t.bind(this), a.bind(this)) },
-        n.cardRender = function (e, t, a) {
-          a.onMenu = function (e, t) { return s.menu(e, t) },
-            a.onEnter = function () { s.hidePreview(), s.play(t) };
-          var n = a.onFocus;
-          a.onFocus = function (e, a) { n(e, a), s.preview(e, t) }
-        },
-        n.filter = function () {
-          if (a) {
-            var r = a.filter(function (e) { return !e.search_on }),
-              i = a.find(function (e) { return e.search_on });
-            if (i || (i = t.search_start), !r.length && !i) return;
-            i && Lampa.Arrays.insert(r, 0, {
-              title: "Найти",
-              onSelect: function () {
-                $("body").addClass("ambience--enable"),
-                  Lampa.Input.edit({ title: "Поиск", value: "", free: !0, nosave: !0 },
-                    function (t) {
-                      if ($("body").removeClass("ambience--enable"),
-                        Lampa.Controller.toggle("content"), t) {
-                        var a = i.playlist_url.indexOf("?") !== -1 ? "&" : "?";
-                        Lampa.Activity.push({
-                          url: i.playlist_url + a + "search=" + encodeURIComponent(t),
-                          title: "Поиск - " + t,
-                          component: "sisi_view_" + e,
-                          search_start: i, page: 1
-                        })
-                      }
-                    })
-              }
-            }),
-              Lampa.Select.show({
-                title: "Фильтр", items: r,
-                onBack: function () { Lampa.Controller.toggle("content") },
-                onSelect: function (r) {
-                  a.forEach(function (e) { e.selected = e == r }),
-                    r.submenu ? Lampa.Select.show({
-                      title: r.title, items: r.submenu,
-                      onBack: function () { n.filter() },
-                      onSelect: function (a) {
-                        Lampa.Activity.push({
-                          title: t.title, url: a.playlist_url,
-                          component: "sisi_view_" + e, page: 1
-                        })
-                      }
-                    }) : n.filter()
-                }
-              })
-          }
-        },
-        n.onRight = n.filter.bind(n), n
+      n.nextPageReuest = function (e, t, a) { l.view(e, t.bind(this), a.bind(this)) },
+      n.cardRender = function (e, t, a) {
+        a.onMenu = function (e, t) { return s.menu(e, t) },
+          a.onEnter = function () { s.hidePreview(), s.play(t) };
+        var n = a.onFocus;
+        a.onFocus = function (e, a) { n(e, a), s.preview(e, t) }
+      },
+      n.filter = function () {
+        if (a) {
+          var r = a.filter(function (e) { return !e.search_on }),
+            i = a.find(function (e) { return e.search_on });
+          if (i || (i = t.search_start), !r.length && !i) return;
+          i && Lampa.Arrays.insert(r, 0, {
+            title: "Найти",
+            onSelect: function () {
+              $("body").addClass("ambience--enable"),
+                Lampa.Input.edit({ title: "Поиск", value: "", free: !0, nosave: !0 }, function (t) {
+                  if ($("body").removeClass("ambience--enable"), Lampa.Controller.toggle("content"), t) {
+                    var a = i.playlist_url.indexOf("?") !== -1 ? "&" : "?";
+                    Lampa.Activity.push({ url: i.playlist_url + a + "search=" + encodeURIComponent(t), title: "Поиск - " + t, component: "sisi_view_" + e, search_start: i, page: 1 })
+                  }
+                })
+            }
+          }),
+          Lampa.Select.show({
+            title: "Фильтр", items: r,
+            onBack: function () { Lampa.Controller.toggle("content") },
+            onSelect: function (r) {
+              a.forEach(function (e) { e.selected = e == r }),
+                r.submenu ? Lampa.Select.show({
+                  title: r.title, items: r.submenu,
+                  onBack: function () { n.filter() },
+                  onSelect: function (a) { Lampa.Activity.push({ title: t.title, url: a.playlist_url, component: "sisi_view_" + e, page: 1 }) }
+                }) : n.filter()
+            }
+          })
+        }
+      },
+      n.onRight = n.filter.bind(n), n
     }
 
     window["plugin_adultjs_" + e + "_ready"] || function () {
       function t() {
         var t = $('<li class="menu__item selector" data-action="adultjs">\n            <div class="menu__ico">\n                <svg xmlns="http://www.w3.org/2000/svg" version="1.1" xmlns:xlink="http://www.w3.org/1999/xlink" width="512" height="512" x="0" y="0" viewBox="0 0 29.461 29.461" style="enable-background:new 0 0 512 512" xml:space="preserve" class=""><g><path d="M28.855 13.134c-.479 0-.91-.197-1.371-.452-1.671 7.509-10.383 11.899-12.765 12.972-2.514-1.125-12.034-5.916-12.963-14.188-.043.029-.088.056-.132.084-.411.269-.797.523-1.299.523-.064 0-.121-.029-.184-.038C1.586 22.377 14.72 27.47 14.72 27.47s12.227-4.74 14.386-14.362a1.397 1.397 0 0 1-.251.026z" fill="currentColor" ></path><path d="M29.379 8.931C28.515-.733 16.628.933 14.721 6.432 12.814.932.928-.733.062 8.931c-.397 4.426 1.173.063 3.508 1.205 1.008.494 1.99 2.702 3.356 2.974 1.998.397 3.109-1.551 4.27-1.631 3.174-.222 2.394 6.596 5.424 5.586 1.961-.653 2.479-3.016 4.171-2.806 1.582.195 3.296-3.711 4.78-3.571 2.471.23 4.305 3.786 3.808-1.757z" fill="currentColor" ></path><path d="M14.894 21.534c2.286 0-.929-3.226-.588-4.511-1.994 1.276-1.697 4.511.588 4.511z" fill="currentColor"></path></g></svg>\n            </div>\n            <div class="menu__text">' + Lampa.Lang.translate("lampac_adultName") + "</div>\n        </li>"),
           a = $("<div>JS</div>");
-        a.css({
-          position: "absolute", right: "-0.4em", bottom: "-0.4em",
-          color: "#fff", fontSize: "0.6em", borderRadius: "0.5em",
-          fontWeight: 900, textTransform: "uppercase"
-        }),
+        a.css({ position: "absolute", right: "-0.4em", bottom: "-0.4em", color: "#fff", fontSize: "0.6em", borderRadius: "0.5em", fontWeight: 900, textTransform: "uppercase" }),
           t.find(".menu__ico").css("position", "relative").append(a),
           t.on("hover:enter", function () {
-            Lampa.ParentalControl || (Lampa.ParentalControl = {
-              query: function (e, t) { "function" == typeof e && e() }
-            }),
+            Lampa.ParentalControl || (Lampa.ParentalControl = { query: function (e, t) { "function" == typeof e && e() } }),
               Lampa.ParentalControl.query(function () {
                 l.menu(function (t) {
                   var a = [];
@@ -1051,38 +561,18 @@ function _toPrimitive(e, t) {
                     Lampa.Select.show({
                       title: "Сайты", items: a,
                       onSelect: function (t) {
-                        // ----------------------------------------
-                        // [v2.0.0] Обработчик кнопки "Обновить зеркала"
-                        // ----------------------------------------
                         if (t.mirror_action) {
                           Lampa.Controller.toggle("menu");
-                          if (window.AdultJS_Debugger) {
-                            AdultJS_Debugger.runMirrorCheck();
-                          } else {
-                            Lampa.Noty.show("[AdultJS] Модуль зеркал не загружен");
-                          }
+                          window.AdultJS_Debugger ? AdultJS_Debugger.runMirrorCheck() : Lampa.Noty.show("[AdultJS] Модуль зеркал не загружен");
                           return;
                         }
-                        // ----------------------------------------
-                        // [v1.2.0-debug] Обработчик "Диагностика"
-                        // ----------------------------------------
                         if (t.debug_action) {
                           Lampa.Controller.toggle("menu");
-                          if (window.AdultJS_Debugger) {
-                            AdultJS_Debugger.runAll();
-                          } else {
-                            Lampa.Noty.show("[AdultJS] Модуль диагностики не загружен");
-                          }
+                          window.AdultJS_Debugger ? AdultJS_Debugger.runAll() : Lampa.Noty.show("[AdultJS] Модуль диагностики не загружен");
                           return;
                         }
-                        // ----------------------------------------
-                        t.playlist_url ? Lampa.Activity.push({
-                          url: t.playlist_url, title: t.title,
-                          component: "sisi_view_" + e, page: 1
-                        }) : Lampa.Activity.push({
-                          url: "", title: Lampa.Lang.translate("lampac_adultName"),
-                          component: "sisi_" + e, page: 1
-                        })
+                        t.playlist_url ? Lampa.Activity.push({ url: t.playlist_url, title: t.title, component: "sisi_view_" + e, page: 1 })
+                          : Lampa.Activity.push({ url: "", title: Lampa.Lang.translate("lampac_adultName"), component: "sisi_" + e, page: 1 })
                       },
                       onBack: function () { Lampa.Controller.toggle("menu") }
                     })
@@ -1093,24 +583,17 @@ function _toPrimitive(e, t) {
           function () {
             var t, a, n = $('<div class="head__action head__settings selector">\n            <svg height="36" viewBox="0 0 38 36" fill="none" xmlns="http://www.w3.org/2000/svg">\n                <rect x="1.5" y="1.5" width="35" height="33" rx="1.5" stroke="currentColor" stroke-width="3"></rect>\n                <rect x="7" y="8" width="24" height="3" rx="1.5" fill="currentColor"></rect>\n                <rect x="7" y="16" width="24" height="3" rx="1.5" fill="currentColor"></rect>\n                <rect x="7" y="25" width="24" height="3" rx="1.5" fill="currentColor"></rect>\n                <circle cx="13.5" cy="17.5" r="3.5" fill="currentColor"></circle>\n                <circle cx="23.5" cy="26.5" r="3.5" fill="currentColor"></circle>\n                <circle cx="21.5" cy="9.5" r="3.5" fill="currentColor"></circle>\n            </svg>\n        </div>');
             n.hide().on("hover:enter", function () {
-              t && (Lampa.Manifest.app_digital >= 300
-                ? t.activity.component.filter()
-                : t.activity.component().filter())
+              t && (Lampa.Manifest.app_digital >= 300 ? t.activity.component.filter() : t.activity.component().filter())
             }),
               $(".head .open--search").after(n),
               Lampa.Listener.follow("activity", function (r) {
                 "start" == r.type && (t = r.object),
                   clearTimeout(a),
-                  a = setTimeout(function () {
-                    t && t.component !== "sisi_view_" + e && (n.hide(), t = !1)
-                  }, 1e3),
+                  a = setTimeout(function () { t && t.component !== "sisi_view_" + e && (n.hide(), t = !1) }, 1e3),
                   "start" == r.type && r.component == "sisi_view_" + e && (n.show(), t = r.object)
               })
           }(),
 
-          // --------------------------------------------------------
-          // [BLOCK:03:START] SETTINGS
-          // --------------------------------------------------------
           window.sisi_add_param_ready || (window.sisi_add_param_ready = !0,
             Lampa.SettingsApi.addComponent({
               component: "AdultJS",
@@ -1130,88 +613,66 @@ function _toPrimitive(e, t) {
               onRender: function (e) {}
             })
           )
-          // --------------------------------------------------------
-          // [BLOCK:03:END]
-          // --------------------------------------------------------
       }
 
       window["plugin_adultjs_" + e + "_ready"] = !0,
         Lampa.Component.add("sisi_" + e, c),
         Lampa.Component.add("sisi_view_" + e, u),
-        window.appready ? t() : Lampa.Listener.follow("app", function (e) {
-          "ready" == e.type && t()
-        })
+        window.appready ? t() : Lampa.Listener.follow("app", function (e) { "ready" == e.type && t() })
     }()
   }();
 
   // ============================================================
-  // [BLOCK:04:START] HTTP_HELPER — v2.0.0 (requestWithRetry)
+  // [BLOCK:04] HTTP_HELPER v2.0.0
   // ============================================================
   var l = (e = function () {
     function e() { _classCallCheck(this, e) }
-    return _createClass(e, null, [
-      {
-        key: "ensureHeaders",
-        value: function (e) {
-          var t = e ? _objectSpread({}, e) : {};
-          return t["user-agent"] || t["User-Agent"] ||
-            (t["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"),
-            t
-        }
-      },
-      {
-        key: "Get",
-        // [v2.0.0] Использует requestWithRetry вместо голого fetch
-        value: (t = _asyncToGenerator(_regenerator().m(function t(a, n, r) {
-          var i, o, s;
-          return _regenerator().w(function (t) {
-            for (;;) switch (t.n) {
-              case 0:
-                if (!e.isAndroid) { t.n = 1; break }
-                return t.a(2, e.Native(a));
-              case 1:
-                return i = e.ensureHeaders(n),
-                  o = { method: "GET", headers: i },
-                  t.n = 2,
-                  requestWithRetry(a, o, 2);
-              case 2:
-                s = t.v;
-                if (r == null) { t.n = 4; break }
-                return t.n = 3, s.arrayBuffer();
-              case 3:
-                return t.a(2, new TextDecoder(r).decode(t.v));
-              case 4:
-                return t.n = 5, s.text();
-              case 5:
-                return t.a(2, t.v)
-            }
-          }, t)
-        })), function (e, a, n) { return t.apply(this, arguments) })
-      },
-      {
-        key: "Native",
-        value: function (t, a, n) {
-          return new Promise(function (r, i) {
-            var o = new window.Lampa.Reguest;
-            o.native(t, function (e) {
-              "object" === _typeof(e) ? r(JSON.stringify(e)) : r(e), o.clear()
-            }, i, a, { dataType: "text", timeout: 8e3, headers: e.ensureHeaders(n) })
-          })
-        }
+    return _createClass(e, null, [{
+      key: "ensureHeaders",
+      value: function (e) {
+        var t = e ? _objectSpread({}, e) : {};
+        return t["user-agent"] || t["User-Agent"] || (t["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"), t
       }
-    ]);
+    }, {
+      key: "Get",
+      value: (t = _asyncToGenerator(_regenerator().m(function t(a, n, r) {
+        var i, o, s;
+        return _regenerator().w(function (t) {
+          for (;;) switch (t.n) {
+            case 0:
+              if (!e.isAndroid) { t.n = 1; break }
+              return t.a(2, e.Native(a));
+            case 1:
+              return i = e.ensureHeaders(n), o = { method: "GET", headers: i }, t.n = 2, requestWithRetry(a, o, 2);
+            case 2:
+              s = t.v;
+              if (r == null) { t.n = 4; break }
+              return t.n = 3, s.arrayBuffer();
+            case 3:
+              return t.a(2, new TextDecoder(r).decode(t.v));
+            case 4:
+              return t.n = 5, s.text();
+            case 5:
+              return t.a(2, t.v)
+          }
+        }, t)
+      })), function (e, a, n) { return t.apply(this, arguments) })
+    }, {
+      key: "Native",
+      value: function (t, a, n) {
+        return new Promise(function (r, i) {
+          var o = new window.Lampa.Reguest;
+          o.native(t, function (e) { "object" === _typeof(e) ? r(JSON.stringify(e)) : r(e), o.clear() }, i, a, { dataType: "text", timeout: 8e3, headers: e.ensureHeaders(n) })
+        })
+      }
+    }]);
     var t
   }(),
-    e.isAndroid = "undefined" != typeof window && void 0 !== window.Lampa &&
-      void 0 !== window.Lampa.Platform && "function" == typeof window.Lampa.Platform.is &&
-      window.Lampa.Platform.is("android"),
+    e.isAndroid = "undefined" != typeof window && void 0 !== window.Lampa && void 0 !== window.Lampa.Platform && "function" == typeof window.Lampa.Platform.is && window.Lampa.Platform.is("android"),
     e),
-  // ============================================================
-  // [BLOCK:04:END]
-  // ============================================================
 
   // ============================================================
-  // [BLOCK:05:START] HELPERS — RegexHelper, VideoItem, MenuItem
+  // [BLOCK:05] HELPERS
   // ============================================================
     c = function () {
       return _createClass(function e() { _classCallCheck(this, e) }, null, [{
@@ -1232,12 +693,9 @@ function _toPrimitive(e, t) {
       _classCallCheck(this, e), this.title = t, this.playlist_url = a,
         n && (this.search_on = n), r && (this.submenu = r)
     }),
-  // ============================================================
-  // [BLOCK:05:END]
-  // ============================================================
 
   // ============================================================
-  // [BLOCK:06:START] SOURCE_BONGACAMS
+  // [BLOCK:06] SOURCE_BONGACAMS
   // ============================================================
     d = (t = function () {
       function e() { _classCallCheck(this, e) }
@@ -1248,11 +706,9 @@ function _toPrimitive(e, t) {
           return _regenerator().w(function (e) {
             for (;;) switch (e.n) {
               case 0:
-                return e.n = 1,
-                  l.Get(t.replace("?pg=1", "").replace("pg=", "page="));
+                return e.n = 1, l.Get(t.replace("?pg=1", "").replace("pg=", "page="));
               case 1:
-                return a = e.v,
-                  e.a(2, { menu: this.Menu(t), list: this.Playlist(a) })
+                return a = e.v, e.a(2, { menu: this.Menu(t), list: this.Playlist(a) })
             }
           }, e, this)
         })), function (e) { return t.apply(this, arguments) })
@@ -1261,7 +717,7 @@ function _toPrimitive(e, t) {
         value: function (e) {
           var t = [];
           return e && 0 !== e.length
-            ? (e.split(/class="(ls_thumb js-ls_thumb|mls_item mls_so_)/).forEach(function (e) {
+            ? (e.split(/class="(ls_thumb js-ls_thumb|mls_item mls_so_)"/).forEach(function (e) {
               var a = c.extract(e, /data-chathost="([^"]+)"/);
               if (a) {
                 var n = c.extract(e, /data-esid="([^"]+)"/);
@@ -1295,21 +751,15 @@ function _toPrimitive(e, t) {
       }]);
       var t
     }(), t.host = "https://ukr.bongacams.com", t),
-  // ============================================================
-  // [BLOCK:06:END]
-  // ============================================================
 
     h = _createClass(function e(t, a) {
       _classCallCheck(this, e),
-        a ? (this.total_pages = 1, this.list = t.recomends)
-          : (this.qualitys = t.qualitys, this.recomends = t.recomends)
+        a ? (this.total_pages = 1, this.list = t.recomends) : (this.qualitys = t.qualitys, this.recomends = t.recomends)
     }),
-    m = _createClass(function e(t, a) {
-      _classCallCheck(this, e), this.qualitys = t, this.recomends = a
-    }),
+    m = _createClass(function e(t, a) { _classCallCheck(this, e), this.qualitys = t, this.recomends = a }),
 
   // ============================================================
-  // [BLOCK:07:START] SOURCE_XVIDEOS
+  // [BLOCK:07] SOURCE_XVIDEOS
   // ============================================================
     g = (a = function () {
       function e() { _classCallCheck(this, e) }
@@ -1325,13 +775,9 @@ function _toPrimitive(e, t) {
               case 1:
                 return n = t.v, t.a(2, new h(this.StreamLinks(n), a.includes("&related")));
               case 2:
-                return r = new URL(a, e.host),
-                  i = r.searchParams.get("search") || "",
-                  o = r.searchParams.get("sort") || "",
-                  s = r.searchParams.get("c") || "",
-                  c = parseInt(r.searchParams.get("pg") || "1", 10),
-                  u = this.buildUrl(e.host, i, o, s, c),
-                  t.n = 3, l.Get(u);
+                return r = new URL(a, e.host), i = r.searchParams.get("search") || "", o = r.searchParams.get("sort") || "",
+                  s = r.searchParams.get("c") || "", c = parseInt(r.searchParams.get("pg") || "1", 10),
+                  u = this.buildUrl(e.host, i, o, s, c), t.n = 3, l.Get(u);
               case 3:
                 return p = t.v, t.a(2, { menu: this.Menu(o, s), list: this.Playlist(p) });
               case 4: return t.a(2)
@@ -1348,29 +794,22 @@ function _toPrimitive(e, t) {
         }
       }, {
         key: "getLastMonth",
-        value: function () {
-          var e = new Date;
-          return e.setMonth(e.getMonth() - 1), e.toISOString().slice(0, 7)
-        }
+        value: function () { var e = new Date; return e.setMonth(e.getMonth() - 1), e.toISOString().slice(0, 7) }
       }, {
         key: "Playlist",
         value: function (t) {
           if (!t) return [];
           for (var a = t.split('<div id="video'), n = [], r = 1; r < a.length; r++) {
-            var i = a[r],
-              o = /<a href="\/(video[^"]+|search-video\/[^"]+)" title="([^"]+)"/.exec(i);
+            var i = a[r], o = /<a href="\/(video[^"]+|search-video\/[^"]+)" title="([^"]+)"/.exec(i);
             if (o && o[1] && o[2] || (o = /<a href="\/(video[^"]+)"[^>]+>([^<]+)/.exec(i)) && o[1] && o[2]) {
               var s = c.extract(i, /<span class="video-hd-mark">([^<]+)<\/span>/),
                 lv = c.extract(i, /<span class="duration">([^<]+)<\/span>/),
                 pv = c.extract(i, /data-src="([^"]+)"/),
                 dv = (pv = pv
-                  ? (pv = (pv = pv.replace(/\/videos\/thumbs([0-9]+)\//, "/videos/thumbs$1lll/"))
-                    .replace(/\.THUMBNUM\.(jpg|png)$/i, ".1.$1"))
-                    .replace("thumbs169l/", "thumbs169lll/").replace("thumbs169ll/", "thumbs169lll/")
+                  ? (pv = (pv = pv.replace(/\/videos\/thumbs([0-9]+)\//, "/videos/thumbs$1lll/")).replace(/\.THUMBNUM\.(jpg|png)$/i, ".1.$1")).replace("thumbs169l/", "thumbs169lll/").replace("thumbs169ll/", "thumbs169lll/")
                   : "").replace(/\/thumbs[^/]+\//, "/videopreview/");
               dv = (dv = dv.replace(/\/[^/]+$/, "")).replace(/-[0-9]+$/, ""),
-                n.push(new u(o[2], "".concat(e.host, "/").concat(o[1]), pv, dv + "_169.mp4",
-                  lv || null, s || null, !0, !0, null))
+                n.push(new u(o[2], "".concat(e.host, "/").concat(o[1]), pv, dv + "_169.mp4", lv || null, s || null, !0, !0, null))
             }
           }
           return n
@@ -1378,56 +817,32 @@ function _toPrimitive(e, t) {
       }, {
         key: "Menu",
         value: function (t, a) {
-          var n, r = e.host,
-            i = [new p("Поиск", r, "search_on")],
-            o = new p("Сортировка: ".concat(
-              "like" === t ? "Понравившиеся" : "top" === t ? "Лучшие" : "Новое"),
-              "submenu", void 0,
+          var n, r = e.host, i = [new p("Поиск", r, "search_on")],
+            o = new p("Сортировка: ".concat("like" === t ? "Понравившиеся" : "top" === t ? "Лучшие" : "Новое"), "submenu", void 0,
               [new p("Новое", r + "?c=".concat(a)), new p("Лучшие", r + "?sort=top&c=".concat(a))]);
           i.push(o);
           var s = [
-            new p("Все", r + "?sort=".concat(t)),
-            new p("Азиат", r + "?sort=".concat(t, "&c=Asian_Woman-32")),
-            new p("Анал", r + "?sort=".concat(t, "&c=Anal-12")),
-            new p("Арабки", r + "?sort=".concat(t, "&c=Arab-159")),
-            new p("Бисексуалы", r + "?sort=".concat(t, "&c=Bi_Sexual-62")),
-            new p("Блондинки", r + "?sort=".concat(t, "&c=Blonde-20")),
-            new p("Большие Попы", r + "?sort=".concat(t, "&c=Big_Ass-24")),
-            new p("Большие Сиськи", r + "?sort=".concat(t, "&c=Big_Tits-23")),
-            new p("Большие яйца", r + "?sort=".concat(t, "&c=Big_Cock-34")),
-            new p("Брюнетки", r + "?sort=".concat(t, "&c=Brunette-25")),
-            new p("В масле", r + "?sort=".concat(t, "&c=Oiled-22")),
-            new p("Веб камеры", r + "?sort=".concat(t, "&c=Cam_Porn-58")),
-            new p("Гэнгбэнг", r + "?sort=".concat(t, "&c=Gangbang-69")),
-            new p("Зияющие отверстия", r + "?sort=".concat(t, "&c=Gapes-167")),
-            new p("Зрелые", r + "?sort=".concat(t, "&c=Mature-38")),
-            new p("Индийский", r + "?sort=".concat(t, "&c=Indian-89")),
-            new p("Испорченная семья", r + "?sort=".concat(t, "&c=Fucked_Up_Family-81")),
-            new p("Кончает внутрь", r + "?sort=".concat(t, "&c=Creampie-40")),
-            new p("Куколд / Горячая Жена", r + "?sort=".concat(t, "&c=Cuckold-237")),
-            new p("Латинки", r + "?sort=".concat(t, "&c=Latina-16")),
-            new p("Лесбиянки", r + "?sort=".concat(t, "&c=Lesbian-26")),
-            new p("Любительское порно", r + "?sort=".concat(t, "&c=Amateur-65")),
-            new p("Мамочки. МИЛФ", r + "?sort=".concat(t, "&c=Milf-19")),
-            new p("Межрассовые", r + "?sort=".concat(t, "&c=Interracial-27")),
-            new p("Минет", r + "?sort=".concat(t, "&c=Blowjob-15")),
-            new p("Нижнее бельё", r + "?sort=".concat(t, "&c=Lingerie-83")),
-            new p("Попки", r + "?sort=".concat(t, "&c=Ass-14")),
-            new p("Рыжие", r + "?sort=".concat(t, "&c=Redhead-31")),
-            new p("Сквиртинг", r + "?sort=".concat(t, "&c=Squirting-56")),
-            new p("Соло", r + "?sort=".concat(t, "&c=Solo_and_Masturbation-33")),
-            new p("Сперма", r + "?sort=".concat(t, "&c=Cumshot-18")),
-            new p("Тинейджеры", r + "?sort=".concat(t, "&c=Teen-13")),
-            new p("Фемдом", r + "?sort=".concat(t, "&c=Femdom-235")),
-            new p("Фистинг", r + "?sort=".concat(t, "&c=Fisting-165")),
-            new p("Черные Женщины", r + "?sort=".concat(t, "&c=bbw-51")),
-            new p("Черный", r + "?sort=".concat(t, "&c=Black_Woman-30")),
-            new p("Чулки,колготки", r + "?sort=".concat(t, "&c=Stockings-28")),
-            new p("ASMR", r + "?sort=".concat(t, "&c=ASMR-229"))
+            new p("Все", r + "?sort=".concat(t)), new p("Азиат", r + "?sort=".concat(t, "&c=Asian_Woman-32")),
+            new p("Анал", r + "?sort=".concat(t, "&c=Anal-12")), new p("Арабки", r + "?sort=".concat(t, "&c=Arab-159")),
+            new p("Бисексуалы", r + "?sort=".concat(t, "&c=Bi_Sexual-62")), new p("Блондинки", r + "?sort=".concat(t, "&c=Blonde-20")),
+            new p("Большие Попы", r + "?sort=".concat(t, "&c=Big_Ass-24")), new p("Большие Сиськи", r + "?sort=".concat(t, "&c=Big_Tits-23")),
+            new p("Большие яйца", r + "?sort=".concat(t, "&c=Big_Cock-34")), new p("Брюнетки", r + "?sort=".concat(t, "&c=Brunette-25")),
+            new p("В масле", r + "?sort=".concat(t, "&c=Oiled-22")), new p("Веб камеры", r + "?sort=".concat(t, "&c=Cam_Porn-58")),
+            new p("Гэнгбэнг", r + "?sort=".concat(t, "&c=Gangbang-69")), new p("Зияющие отверстия", r + "?sort=".concat(t, "&c=Gapes-167")),
+            new p("Зрелые", r + "?sort=".concat(t, "&c=Mature-38")), new p("Индийский", r + "?sort=".concat(t, "&c=Indian-89")),
+            new p("Испорченная семья", r + "?sort=".concat(t, "&c=Fucked_Up_Family-81")), new p("Кончает внутрь", r + "?sort=".concat(t, "&c=Creampie-40")),
+            new p("Куколд / Горячая Жена", r + "?sort=".concat(t, "&c=Cuckold-237")), new p("Латинки", r + "?sort=".concat(t, "&c=Latina-16")),
+            new p("Лесбиянки", r + "?sort=".concat(t, "&c=Lesbian-26")), new p("Любительское порно", r + "?sort=".concat(t, "&c=Amateur-65")),
+            new p("Мамочки. МИЛФ", r + "?sort=".concat(t, "&c=Milf-19")), new p("Межрассовые", r + "?sort=".concat(t, "&c=Interracial-27")),
+            new p("Минет", r + "?sort=".concat(t, "&c=Blowjob-15")), new p("Нижнее бельё", r + "?sort=".concat(t, "&c=Lingerie-83")),
+            new p("Попки", r + "?sort=".concat(t, "&c=Ass-14")), new p("Рыжие", r + "?sort=".concat(t, "&c=Redhead-31")),
+            new p("Сквиртинг", r + "?sort=".concat(t, "&c=Squirting-56")), new p("Соло", r + "?sort=".concat(t, "&c=Solo_and_Masturbation-33")),
+            new p("Сперма", r + "?sort=".concat(t, "&c=Cumshot-18")), new p("Тинейджеры", r + "?sort=".concat(t, "&c=Teen-13")),
+            new p("Фемдом", r + "?sort=".concat(t, "&c=Femdom-235")), new p("Фистинг", r + "?sort=".concat(t, "&c=Fisting-165")),
+            new p("Черные Женщины", r + "?sort=".concat(t, "&c=bbw-51")), new p("Черный", r + "?sort=".concat(t, "&c=Black_Woman-30")),
+            new p("Чулки,колготки", r + "?sort=".concat(t, "&c=Stockings-28")), new p("ASMR", r + "?sort=".concat(t, "&c=ASMR-229"))
           ];
-          return i.push(new p("Категория: ".concat(
-            (null === (n = s.find(function (e) { return e.playlist_url.endsWith("c=".concat(a)) }))
-              || void 0 === n ? void 0 : n.title) || "все"), "submenu", void 0, s)), i
+          return i.push(new p("Категория: ".concat((null === (n = s.find(function (e) { return e.playlist_url.endsWith("c=".concat(a)) })) || void 0 === n ? void 0 : n.title) || "все"), "submenu", void 0, s)), i
         }
       }, {
         key: "StreamLinks",
@@ -1443,8 +858,7 @@ function _toPrimitive(e, t) {
                 if (s.tf && s.u && s.if) {
                   var lv = s.if.replace(/\/thumbs[^/]+\//, "/videopreview/");
                   lv = (lv = lv.replace(/\/[^/]+$/, "")).replace(/-[0-9]+$/, ""),
-                    n.push(new u(s.tf, "".concat(e.host).concat(s.u), s.if,
-                      lv + "_169.mp4", s.d || "", null, !0, !0, null))
+                    n.push(new u(s.tf, "".concat(e.host).concat(s.u), s.if, lv + "_169.mp4", s.d || "", null, !0, !0, null))
                 }
               }
             } catch (e) { o.e(e) } finally { o.f() }
@@ -1454,12 +868,9 @@ function _toPrimitive(e, t) {
       }]);
       var t
     }(), a.host = "https://www.xv-ru.com", a),
-  // ============================================================
-  // [BLOCK:07:END]
-  // ============================================================
 
   // ============================================================
-  // [BLOCK:08:START] SOURCE_XNXX
+  // [BLOCK:08] SOURCE_XNXX
   // ============================================================
     y = (n = function () {
       function e() { _classCallCheck(this, e) }
@@ -1475,10 +886,8 @@ function _toPrimitive(e, t) {
               case 1:
                 return n = t.v, t.a(2, new h(this.StreamLinks(n), a.includes("&related")));
               case 2:
-                return r = new URL(a, e.host),
-                  i = r.searchParams.get("search") || "",
-                  o = parseInt(r.searchParams.get("pg") || "1", 10),
-                  s = this.buildUrl(e.host, i, o),
+                return r = new URL(a, e.host), i = r.searchParams.get("search") || "",
+                  o = parseInt(r.searchParams.get("pg") || "1", 10), s = this.buildUrl(e.host, i, o),
                   t.n = 3, l.Get(s);
               case 3:
                 return c = t.v, t.a(2, { menu: this.Menu(), list: this.Playlist(c) });
@@ -1490,36 +899,29 @@ function _toPrimitive(e, t) {
         key: "buildUrl",
         value: function (e, t, a) {
           if (t) return "".concat(e, "/search/").concat(encodeURIComponent(t), "/").concat(a);
-          var n = new Date;
-          n.setMonth(n.getMonth() - 1);
-          var r = n.toISOString().slice(0, 7);
-          return "".concat(e, "/best/").concat(r, "/").concat(a)
+          var n = new Date; n.setMonth(n.getMonth() - 1);
+          return "".concat(e, "/best/").concat(n.toISOString().slice(0, 7), "/").concat(a)
         }
       }, {
         key: "Playlist",
         value: function (t) {
           if (!t) return [];
           for (var a = t.split('<div id="video_'), n = [], r = 1; r < a.length; r++) {
-            var i = a[r],
-              o = /<a href="\/(video-[^"]+)" title="([^"]+)"/.exec(i),
+            var i = a[r], o = /<a href="\/(video-[^"]+)" title="([^"]+)"/.exec(i),
               s = c.extract(i, /<span class="superfluous"> - <\/span>([^<]+)<\/span>/);
             if (o && o[1] && o[2]) {
               var lv = c.extract(i, /<\/span>([^<]+)<span class="video-hd">/),
                 pv = c.extract(i, /data-src="([^"]+)"/),
                 dv = (pv = pv ? pv.replace(".THUMBNUM.", ".1.") : "").replace(/\/thumbs[^/]+\//, "/videopreview/");
               dv = (dv = dv.replace(/\/[^/]+$/, "")).replace(/-[0-9]+$/, ""),
-                n.push(new u(o[2], "".concat(e.host, "/").concat(o[1]), pv,
-                  dv + "_169.mp4", lv || null, s || null, !0, !0, null))
+                n.push(new u(o[2], "".concat(e.host, "/").concat(o[1]), pv, dv + "_169.mp4", lv || null, s || null, !0, !0, null))
             }
           }
           return n
         }
       }, {
         key: "Menu",
-        value: function () {
-          var t = e.host + "/xnx";
-          return [new p("Поиск", t, "search_on")]
-        }
+        value: function () { var t = e.host + "/xnx"; return [new p("Поиск", t, "search_on")] }
       }, {
         key: "StreamLinks",
         value: function (t) {
@@ -1531,8 +933,7 @@ function _toPrimitive(e, t) {
             try {
               for (o.s(); !(i = o.n()).done;) {
                 var s = i.value;
-                s.tf && s.u && s.i && n.push(new u(s.tf, "".concat(e.host).concat(s.u),
-                  s.i, null, "", null, !0, !0, null))
+                s.tf && s.u && s.i && n.push(new u(s.tf, "".concat(e.host).concat(s.u), s.i, null, "", null, !0, !0, null))
               }
             } catch (e) { o.e(e) } finally { o.f() }
           } catch (e) {}
@@ -1541,12 +942,9 @@ function _toPrimitive(e, t) {
       }]);
       var t
     }(), n.host = "https://www.xnxx-ru.com", n),
-  // ============================================================
-  // [BLOCK:08:END]
-  // ============================================================
 
   // ============================================================
-  // [BLOCK:09:START] SOURCE_SPANKBANG
+  // [BLOCK:09] SOURCE_SPANKBANG
   // ============================================================
     v = (r = function () {
       function e() { _classCallCheck(this, e) }
@@ -1562,12 +960,9 @@ function _toPrimitive(e, t) {
               case 1:
                 return n = t.v, t.a(2, new h(this.StreamLinks(n), a.includes("&related")));
               case 2:
-                return r = new URL(a, e.host),
-                  i = r.searchParams.get("search") || "",
-                  o = r.searchParams.get("sort") || "",
-                  s = parseInt(r.searchParams.get("pg") || "1", 10),
-                  c = this.buildUrl(e.host, i, o, s),
-                  t.n = 3, l.Get(c);
+                return r = new URL(a, e.host), i = r.searchParams.get("search") || "",
+                  o = r.searchParams.get("sort") || "", s = parseInt(r.searchParams.get("pg") || "1", 10),
+                  c = this.buildUrl(e.host, i, o, s), t.n = 3, l.Get(c);
               case 3:
                 return u2 = t.v, t.a(2, { menu: this.Menu(o), list: this.Playlist(u2) });
               case 4: return t.a(2)
@@ -1579,8 +974,7 @@ function _toPrimitive(e, t) {
         value: function (e, t, a, n) {
           var r = "".concat(e, "/");
           return t ? r += "s/".concat(encodeURIComponent(t), "/").concat(n, "/")
-            : (r += "".concat(a || "new_videos", "/").concat(n, "/"),
-              "most_popular" === a && (r += "?p=m")), r
+            : (r += "".concat(a || "new_videos", "/").concat(n, "/"), "most_popular" === a && (r += "?p=m")), r
         }
       }, {
         key: "Playlist",
@@ -1594,8 +988,7 @@ function _toPrimitive(e, t) {
                 pv = c.extract(i, /data-src="([^"]+)"/);
               pv = pv ? pv.replace(/\/w:[0-9]00\//, "/w:300/") : "";
               var dv = c.extract(i, /data-preview="([^"]+)"/);
-              n.push(new u(o[2], "".concat(e.host, "/").concat(o[1]), pv, dv || null,
-                lv || null, s || null, !0, !0, null))
+              n.push(new u(o[2], "".concat(e.host, "/").concat(o[1]), pv, dv || null, lv || null, s || null, !0, !0, null))
             }
           }
           return n
@@ -1607,17 +1000,14 @@ function _toPrimitive(e, t) {
           return [
             new p("Поиск", a, "search_on"),
             new p("Сортировка: ".concat(t || "новое"), "submenu", void 0, [
-              new p("Новое", a),
-              new p("Трендовое", a + "?sort=trending_videos"),
-              new p("Популярное", a + "?sort=most_popular")
+              new p("Новое", a), new p("Трендовое", a + "?sort=trending_videos"), new p("Популярное", a + "?sort=most_popular")
             ])
           ]
         }
       }, {
         key: "StreamLinks",
         value: function (e) {
-          for (var t, a = {}, n = /'([0-9]+)(p|k)': ?$'(https?:\/\/[^']+)'/g;
-            null !== (t = n.exec(e));) {
+          for (var t, a = {}, n = /'([0-9]+)(p|k)': ?'(https?:\/\/[^']+)'/g; null !== (t = n.exec(e));) {
             var r = "k" === t[2] ? 2160 : parseInt(t[1], 10);
             a["".concat(r, "p")] = t[3]
           }
@@ -1626,12 +1016,9 @@ function _toPrimitive(e, t) {
       }]);
       var t
     }(), r.host = "https://ru.spankbang.com", r),
-  // ============================================================
-  // [BLOCK:09:END]
-  // ============================================================
 
   // ============================================================
-  // [BLOCK:10:START] SOURCE_CHATURBATE
+  // [BLOCK:10] SOURCE_CHATURBATE
   // ============================================================
     b = (i = function () {
       function e() { _classCallCheck(this, e) }
@@ -1647,10 +1034,8 @@ function _toPrimitive(e, t) {
                 return c2 = h, t.n = 1, this.StreamLinks(n.searchParams.get("baba"));
               case 1: return u2 = t.v, t.a(2, new c2(u2, !1));
               case 2:
-                return r = n.searchParams.get("sort") || "",
-                  i = parseInt(n.searchParams.get("pg") || "1", 10),
-                  o = this.buildUrl(e.host, r, i),
-                  t.n = 3, l.Get(o);
+                return r = n.searchParams.get("sort") || "", i = parseInt(n.searchParams.get("pg") || "1", 10),
+                  o = this.buildUrl(e.host, r, i), t.n = 3, l.Get(o);
               case 3:
                 return s = t.v, t.a(2, { menu: this.Menu(r), list: this.Playlist(s) });
               case 4: return t.a(2)
@@ -1661,8 +1046,7 @@ function _toPrimitive(e, t) {
         key: "buildUrl",
         value: function (e, t, a) {
           var n = e + "/api/ts/roomlist/room-list/?enable_recommendations=false&limit=90";
-          return t && (n += "&genders=".concat(t)),
-            a > 1 && (n += "&offset=".concat(90 * a)), n
+          return t && (n += "&genders=".concat(t)), a > 1 && (n += "&offset=".concat(90 * a)), n
         }
       }, {
         key: "Playlist",
@@ -1674,9 +1058,7 @@ function _toPrimitive(e, t) {
               var o = c.extract(i, /"username":"([^"]+)"/);
               if (o) {
                 var s = c.extract(i, /"img":"([^"]+)"/);
-                s && (s = s.replace(/\\/g, ""),
-                  n.push(new u(o.trim(), "".concat(e.host, "?baba=").concat(o.trim()),
-                    s, null, null, null, !0, !1, null)))
+                s && (s = s.replace(/\\/g, ""), n.push(new u(o.trim(), "".concat(e.host, "?baba=").concat(o.trim()), s, null, null, null, !0, !1, null)))
               }
             }
           }
@@ -1686,14 +1068,8 @@ function _toPrimitive(e, t) {
         key: "Menu",
         value: function (t) {
           var a, n = e.host + "/chu",
-            r = [
-              new p("Лучшие", n), new p("Девушки", n + "?sort=f"),
-              new p("Пары", n + "?sort=c"), new p("Парни", n + "?sort=m"),
-              new p("Транссексуалы", n + "?sort=t")
-            ],
-            i = (null === (a = r.find(function (e) {
-              return e.playlist_url.endsWith("=".concat(t))
-            })) || void 0 === a ? void 0 : a.title) || "Лучшие";
+            r = [new p("Лучшие", n), new p("Девушки", n + "?sort=f"), new p("Пары", n + "?sort=c"), new p("Парни", n + "?sort=m"), new p("Транссексуалы", n + "?sort=t")],
+            i = (null === (a = r.find(function (e) { return e.playlist_url.endsWith("=".concat(t)) })) || void 0 === a ? void 0 : a.title) || "Лучшие";
           return [new p("Сортировка: ".concat(i), "submenu", void 0, r)]
         }
       }, {
@@ -1703,31 +1079,23 @@ function _toPrimitive(e, t) {
           return _regenerator().w(function (t) {
             for (;;) switch (t.n) {
               case 0:
-                if (a) { t.n = 1; break }
-                return t.a(2, new m({}, []));
+                if (a) { t.n = 1; break } return t.a(2, new m({}, []));
               case 1:
                 return t.n = 2, l.Get("".concat(e.host, "/").concat(a, "/"));
               case 2:
-                if (n = t.v, r = c.extract(n, /(https?:\/\/[^ ]+\/playlist\.m3u8)/)) {
-                  t.n = 3; break
-                }
+                if (n = t.v, r = c.extract(n, /(https?:\/\/[^ ]+\/playlist\.m3u8)/)) { t.n = 3; break }
                 return t.a(2, new m({}, []));
               case 3:
-                return t.a(2, new m({
-                  auto: r.replace(/\\u002D/g, "-").replace(/\\/g, "")
-                }, []))
+                return t.a(2, new m({ auto: r.replace(/\\u002D/g, "-").replace(/\\/g, "") }, []))
             }
           }, t)
         })), function (e) { return t.apply(this, arguments) })
       }]);
       var t, a
     }(), i.host = "https://chaturbate.com", i),
-  // ============================================================
-  // [BLOCK:10:END]
-  // ============================================================
 
   // ============================================================
-  // [BLOCK:11:START] SOURCE_EPORNER
+  // [BLOCK:11] SOURCE_EPORNER
   // ============================================================
     f = (o = function () {
       function e() { _classCallCheck(this, e) }
@@ -1743,12 +1111,9 @@ function _toPrimitive(e, t) {
               case 1:
                 return dv = t.v, mv = a.includes("&related"), t.a(2, new pv(dv, mv));
               case 2:
-                return n = new URL(a, e.host),
-                  r = n.searchParams.get("search") || "",
-                  i = n.searchParams.get("sort") || "",
-                  o2 = n.searchParams.get("c") || "",
-                  s = parseInt(n.searchParams.get("pg") || "1", 10),
-                  c2 = this.buildUrl(e.host, r, i, o2, s),
+                return n = new URL(a, e.host), r = n.searchParams.get("search") || "",
+                  i = n.searchParams.get("sort") || "", o2 = n.searchParams.get("c") || "",
+                  s = parseInt(n.searchParams.get("pg") || "1", 10), c2 = this.buildUrl(e.host, r, i, o2, s),
                   t.n = 3, l.Get(c2);
               case 3:
                 return u2 = t.v, t.a(2, { menu: this.Menu(r, i, o2), list: this.Playlist(u2) });
@@ -1760,12 +1125,8 @@ function _toPrimitive(e, t) {
         key: "buildUrl",
         value: function (e, t, a, n, r) {
           var i = "".concat(e, "/");
-          return t
-            ? (i += "search/".concat(encodeURIComponent(t), "/"),
-              r > 1 && (i += "".concat(r, "/")),
-              a && (i += "".concat(a, "/")))
-            : n
-              ? (i += "cat/".concat(n, "/"), r > 1 && (i += "".concat(r, "/")))
+          return t ? (i += "search/".concat(encodeURIComponent(t), "/"), r > 1 && (i += "".concat(r, "/")), a && (i += "".concat(a, "/")))
+            : n ? (i += "cat/".concat(n, "/"), r > 1 && (i += "".concat(r, "/")))
               : (r > 1 && (i += "".concat(r, "/")), a && (i += "".concat(a, "/"))), i
         }
       }, {
@@ -1784,8 +1145,7 @@ function _toPrimitive(e, t) {
               var dv = c.extract(o2, /data-id="([^"]+)"/),
                 hv = pv && dv ? pv.replace(/\/[^/]+$/, "") + "/".concat(dv, "-preview.webm") : null,
                 mv = c.extract(o2, /<span class="mbtim"([^>]+)?>([^<]+)<\/span>/, 2);
-              r.push(new u(s[2], "".concat(e.host, "/").concat(s[1]),
-                pv || "", hv, mv || null, lv || null, !0, !0, null))
+              r.push(new u(s[2], "".concat(e.host, "/").concat(s[1]), pv || "", hv, mv || null, lv || null, !0, !0, null))
             }
           }
           return r
@@ -1795,29 +1155,18 @@ function _toPrimitive(e, t) {
         value: function (t, a, n) {
           var r, i = e.host, o2 = [new p("Поиск", i, "search_on")];
           if (t) return (o2.push(new p("Сортировка: ".concat(a || "новинки"), "submenu", void 0,
-            [new p("Новинки", i + "?search=".concat(encodeURIComponent(t))),
-            new p("Топ просмотра", i + "?sort=most-viewed&search=".concat(encodeURIComponent(t))),
-            new p("Топ рейтинга", i + "?sort=top-rated&search=".concat(encodeURIComponent(t))),
-            new p("Длинные ролики", i + "?sort=longest&search=".concat(encodeURIComponent(t))),
+            [new p("Новинки", i + "?search=".concat(encodeURIComponent(t))), new p("Топ просмотра", i + "?sort=most-viewed&search=".concat(encodeURIComponent(t))),
+            new p("Топ рейтинга", i + "?sort=top-rated&search=".concat(encodeURIComponent(t))), new p("Длинные ролики", i + "?sort=longest&search=".concat(encodeURIComponent(t))),
             new p("Короткие ролики", i + "?sort=shortest&search=".concat(encodeURIComponent(t)))])), o2);
           n || o2.push(new p("Сортировка: ".concat(a || "новинки"), "submenu", void 0,
-            [new p("Новинки", i), new p("Топ просмотра", i + "?sort=most-viewed"),
-            new p("Топ рейтинга", i + "?sort=top-rated"),
-            new p("Длинные ролики", i + "?sort=longest"),
-            new p("Короткие ролики", i + "?sort=shortest")]));
-          var s = [
-            new p("Все", i), new p("4K UHD", i + "?c=4k-porn"),
-            new p("60 FPS", i + "?c=60fps"), new p("Amateur", i + "?c=amateur"),
-            new p("Anal", i + "?c=anal"), new p("Asian", i + "?c=asian"),
-            new p("ASMR", i + "?c=asmr"), new p("BBW", i + "?c=bbw"),
-            new p("BDSM", i + "?c=bdsm"), new p("Big Ass", i + "?c=big-ass"),
-            new p("Big Dick", i + "?c=big-dick"), new p("Big Tits", i + "?c=big-tits"),
-            new p("Teen", i + "?c=teens"), new p("Threesome", i + "?c=threesome"),
-            new p("Mature", i + "?c=mature"), new p("MILF", i + "?c=milf")
-          ];
-          return o2.push(new p("Категория: ".concat(
-            (null === (r = s.find(function (e) { return e.playlist_url.endsWith("c=".concat(n)) }))
-              || void 0 === r ? void 0 : r.title) || "все"), "submenu", void 0, s)), o2
+            [new p("Новинки", i), new p("Топ просмотра", i + "?sort=most-viewed"), new p("Топ рейтинга", i + "?sort=top-rated"),
+            new p("Длинные ролики", i + "?sort=longest"), new p("Короткие ролики", i + "?sort=shortest")]));
+          var s = [new p("Все", i), new p("4K UHD", i + "?c=4k-porn"), new p("60 FPS", i + "?c=60fps"),
+            new p("Amateur", i + "?c=amateur"), new p("Anal", i + "?c=anal"), new p("Asian", i + "?c=asian"),
+            new p("ASMR", i + "?c=asmr"), new p("BBW", i + "?c=bbw"), new p("BDSM", i + "?c=bdsm"),
+            new p("Big Ass", i + "?c=big-ass"), new p("Big Dick", i + "?c=big-dick"), new p("Big Tits", i + "?c=big-tits"),
+            new p("Teen", i + "?c=teens"), new p("Threesome", i + "?c=threesome"), new p("Mature", i + "?c=mature"), new p("MILF", i + "?c=milf")];
+          return o2.push(new p("Категория: ".concat((null === (r = s.find(function (e) { return e.playlist_url.endsWith("c=".concat(n)) })) || void 0 === r ? void 0 : r.title) || "все"), "submenu", void 0, s)), o2
         }
       }, {
         key: "StreamLinks",
@@ -1831,149 +1180,94 @@ function _toPrimitive(e, t) {
               case 2:
                 if (n = e.v) { e.n = 3; break } return e.a(2, new m({}, []));
               case 3:
-                if (r = c.extract(n, /vid ?= ?'([^']+)'/),
-                  i = c.extract(n, /hash ?= ?'([^']+)'/), r && i) {
-                  e.n = 4; break
-                }
+                if (r = c.extract(n, /vid ?= ?'([^']+)'/), i = c.extract(n, /hash ?= ?'([^']+)'/), r && i) { e.n = 4; break }
                 return e.a(2, new m({}, []));
               case 4:
-                return o2 = "".concat(t, "/xhr/video/").concat(r, "?hash=")
-                  .concat(this.convertHash(i), "&domain=")
-                  .concat(t.replace(/^https?:\/\//, ""),
-                    "&fallback=false&embed=false&supportedFormats=dash,mp4&_=")
-                  .concat(Math.floor(Date.now() / 1e3)),
+                return o2 = "".concat(t, "/xhr/video/").concat(r, "?hash=").concat(this.convertHash(i), "&domain=").concat(t.replace(/^https?:\/\//, ""), "&fallback=false&embed=false&supportedFormats=dash,mp4&_=").concat(Math.floor(Date.now() / 1e3)),
                   e.n = 5, l.Get(o2);
               case 5:
                 if (s = e.v) { e.n = 6; break } return e.a(2, new m({}, []));
               case 6:
-                for (u2 = {}, pv = /"src":\s*"(https?:\/\/[^/]+\/[^"]+-([0-9]+p)\.mp4)",/g;
-                  null !== (dv = pv.exec(s));) u2[dv[2]] = dv[1];
+                for (u2 = {}, pv = /"src":\s*"(https?:\/\/[^/]+\/[^"]+-([0-9]+p)\.mp4)",/g; null !== (dv = pv.exec(s));) u2[dv[2]] = dv[1];
                 return e.a(2, new m(u2, this.Playlist(n)))
             }
           }, e, this)
         })), function (e, a) { return t.apply(this, arguments) })
       }, {
         key: "convertHash",
-        value: function (e) {
-          return this.base36(e.substring(0, 8)) + this.base36(e.substring(8, 16))
-            + this.base36(e.substring(16, 24)) + this.base36(e.substring(24, 32))
-        }
+        value: function (e) { return this.base36(e.substring(0, 8)) + this.base36(e.substring(8, 16)) + this.base36(e.substring(16, 24)) + this.base36(e.substring(24, 32)) }
       }, {
         key: "base36",
         value: function (e) {
-          for (var t = "", a = parseInt(e, 16); a > 0;)
-            t = "0123456789abcdefghijklmnopqrstuvwxyz"[a % 36] + t, a = Math.floor(a / 36);
+          for (var t = "", a = parseInt(e, 16); a > 0;) t = "0123456789abcdefghijklmnopqrstuvwxyz"[a % 36] + t, a = Math.floor(a / 36);
           return t || "0"
         }
       }]);
       var t, a
     }(), o.host = "https://www.eporner.com", o);
-  // ============================================================
-  // [BLOCK:11:END]
-  // ============================================================
 
   // ============================================================
-  // [BLOCK:12:START] NEXTHUB_ENGINE
+  // [BLOCK:12] NEXTHUB_ENGINE
   // ============================================================
-  function k(e, t) {
-    return e.replace(/\{([^}]+)\}/g, function (e, a) {
-      var n; return null !== (n = t[a]) && void 0 !== n ? n : ""
-    })
-  }
-  function w(e, t) {
-    var a = e.replace(/\/+$/, ""), n = t.replace(/^\/+/, "");
-    return a + (n ? "/" + n : "")
-  }
+  function k(e, t) { return e.replace(/\{([^}]+)\}/g, function (e, a) { var n; return null !== (n = t[a]) && void 0 !== n ? n : "" }) }
+  function w(e, t) { var a = e.replace(/\/+$/, ""), n = t.replace(/^\/+/, ""); return a + (n ? "/" + n : "") }
   function _(e) { return (new DOMParser).parseFromString(e, "text/html") }
-  function x(e, t, a) {
-    return e.evaluate(t, a || e, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue
-  }
+  function x(e, t, a) { return e.evaluate(t, a || e, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue }
   function C(e, t, a) {
     if (!e) return "";
     if (Array.isArray(t)) {
       var n, r = _createForOfIteratorHelper(t);
-      try {
-        for (r.s(); !(n = r.n()).done;) {
-          var i = n.value, o = e.getAttribute(i);
-          if (o && "" !== o.trim()) return o
-        }
-      } catch (e) { r.e(e) } finally { r.f() }
+      try { for (r.s(); !(n = r.n()).done;) { var i = n.value, o = e.getAttribute(i); if (o && "" !== o.trim()) return o } }
+      catch (e) { r.e(e) } finally { r.f() }
       return a || ""
     }
     return e.getAttribute(t || "src") || a || ""
   }
 
   var S = (s = function () {
-    return _createClass(function e(t) {
-      _classCallCheck(this, e), this.cfgs = t
-    }, [{
+    return _createClass(function e(t) { _classCallCheck(this, e), this.cfgs = t }, [{
       key: "buildListUrl",
       value: function (e, t, a, n) {
         var r, i, o, s, l2,
           c2 = n && "" !== n.trim(),
-          u2 = Object.keys((null === (r = e.menu) || void 0 === r ? void 0 : r.sort) || {})
-            .find(function (t) {
-              var a, n = null === (a = e.menu) || void 0 === a || null === (a = a.sort) || void 0 === a
-                ? void 0 : a[t];
-              return !n || "" === n
-            }),
+          u2 = Object.keys((null === (r = e.menu) || void 0 === r ? void 0 : r.sort) || {}).find(function (t) { var a, n = null === (a = e.menu) || void 0 === a || null === (a = a.sort) || void 0 === a ? void 0 : a[t]; return !n || "" === n }),
           p2 = a && "" !== a.trim() && a !== u2;
         if (null !== (i = e.menu) && void 0 !== i && i.route)
           if (c2 && p2 && e.menu.route.catsort) s = e.menu.route.catsort;
           else if (c2 && p2 && !e.menu.route.catsort) s = e.menu.route.cat;
           else if (c2 && e.menu.route.cat) s = e.menu.route.cat;
           else if (p2 && e.menu.route.sort) s = e.menu.route.sort;
-          else {
-            var d2;
-            s = 1 === t && null != (null === (d2 = e.list) || void 0 === d2 ? void 0 : d2.firstpage)
-              ? e.list.firstpage : e.list ? e.list.uri : "{host}"
-          }
-        else
-          s = 1 === t && null != (null === (l2 = e.list) || void 0 === l2 ? void 0 : l2.firstpage)
-            ? e.list.firstpage : e.list ? e.list.uri : "{host}";
-        var h2 = (p2 && null !== (o = e.menu) && void 0 !== o && o.sort ? e.menu.sort[a] : "")
-          .replace(/\{page\}/g, String(t)),
-          m2 = k(s = s.replace(/\{page\}/g, String(t)), {
-            host: e.host, sort: h2 || "", cat: n || "", page: String(t)
-          });
+          else { var d2; s = 1 === t && null != (null === (d2 = e.list) || void 0 === d2 ? void 0 : d2.firstpage) ? e.list.firstpage : e.list ? e.list.uri : "{host}" }
+        else s = 1 === t && null != (null === (l2 = e.list) || void 0 === l2 ? void 0 : l2.firstpage) ? e.list.firstpage : e.list ? e.list.uri : "{host}";
+        var h2 = (p2 && null !== (o = e.menu) && void 0 !== o && o.sort ? e.menu.sort[a] : "").replace(/\{page\}/g, String(t)),
+          m2 = k(s = s.replace(/\{page\}/g, String(t)), { host: e.host, sort: h2 || "", cat: n || "", page: String(t) });
         return s.startsWith("{host}") || m2.startsWith("http") || (m2 = w(e.host, m2)), m2
       }
     }, {
       key: "buildSearchUrl",
-      value: function (e, t, a) {
-        if (!e.search) return e.host;
-        var n = k(e.search.uri, { search: encodeURIComponent(t), page: String(a) });
-        return w(e.host, n)
-      }
+      value: function (e, t, a) { if (!e.search) return e.host; var n = k(e.search.uri, { search: encodeURIComponent(t), page: String(a) }); return w(e.host, n) }
     }, {
       key: "buildModelUrl",
       value: function (e, t, a) {
-        var n, r = null == e || null === (n = e.menu) || void 0 === n
-          || null === (n = n.route) || void 0 === n ? void 0 : n.model,
+        var n, r = null == e || null === (n = e.menu) || void 0 === n || null === (n = n.route) || void 0 === n ? void 0 : n.model,
           i = decodeURIComponent(t);
         return r.replace("{host}", e.host).replace("{model}", i).replace("{page}", String(a))
       }
     }, {
       key: "buildMenu",
       value: function (e, t, a) {
-        var n, r, i,
-          o2 = arguments.length > 3 && void 0 !== arguments[3] && arguments[3],
-          s2 = arguments.length > 4 ? arguments[4] : void 0,
-          l2 = [];
+        var n, r, i, o2 = arguments.length > 3 && void 0 !== arguments[3] && arguments[3], s2 = arguments.length > 4 ? arguments[4] : void 0, l2 = [];
         if (o2 || l2.push(new p("Поиск", "nexthub://".concat(e.displayname, "?mode=search"), "search_on")),
           o2 && null !== (n = e.view) && void 0 !== n && n.related && s2) {
-          var c2, u2 = null === (c2 = s2.split("/").pop()) || void 0 === c2
-            || null === (c2 = c2.split("?")[0]) || void 0 === c2 ? void 0 : c2.split("&")[0],
-            d2 = "".concat(e.host, "/").concat(u2),
-            h2 = "nexthub://".concat(e.displayname, "?mode=related&href=").concat(encodeURIComponent(d2));
+          var c2, u2 = null === (c2 = s2.split("/").pop()) || void 0 === c2 || null === (c2 = c2.split("?")[0]) || void 0 === c2 ? void 0 : c2.split("&")[0],
+            d2 = "".concat(e.host, "/").concat(u2), h2 = "nexthub://".concat(e.displayname, "?mode=related&href=").concat(encodeURIComponent(d2));
           l2.push(new p("Похожие", h2))
         }
         if (null !== (r = e.menu) && void 0 !== r && r.sort) {
           for (var m2 = [], g2 = 0, y2 = Object.entries(e.menu.sort); g2 < y2.length; g2++) {
             var v2, b2 = _slicedToArray(y2[g2], 2), f2 = b2[0],
               k2 = (b2[1], "nexthub://".concat(e.displayname, "?mode=list&sort=").concat(encodeURIComponent(f2)));
-            a && null !== (v2 = e.menu) && void 0 !== v2 && null !== (v2 = v2.route) && void 0 !== v2
-              && v2.catsort && (k2 += "&cat=".concat(encodeURIComponent(a))),
+            a && null !== (v2 = e.menu) && void 0 !== v2 && null !== (v2 = v2.route) && void 0 !== v2 && v2.catsort && (k2 += "&cat=".concat(encodeURIComponent(a))),
               m2.push(new p(f2, k2))
           }
           var w2 = m2.find(function (e) { return e.title === t }) || m2[0];
@@ -1984,23 +1278,13 @@ function _toPrimitive(e, t) {
             var S2, P2 = _slicedToArray(C2[x2], 2), z2 = P2[0], L2 = P2[1],
               j2 = "nexthub://".concat(e.displayname, "?mode=list&cat=").concat(encodeURIComponent(L2));
             if (null !== (S2 = e.menu) && void 0 !== S2 && null !== (S2 = S2.route) && void 0 !== S2 && S2.catsort) {
-              var M2, T2 = Object.keys((null === (M2 = e.menu) || void 0 === M2 ? void 0 : M2.sort) || {})
-                .find(function (t) {
-                  var a, n = null === (a = e.menu) || void 0 === a || null === (a = a.sort) || void 0 === a
-                    ? void 0 : a[t];
-                  return !n || "" === n
-                });
+              var M2, T2 = Object.keys((null === (M2 = e.menu) || void 0 === M2 ? void 0 : M2.sort) || {}).find(function (t) { var a, n = null === (a = e.menu) || void 0 === a || null === (a = a.sort) || void 0 === a ? void 0 : a[t]; return !n || "" === n });
               t && t !== T2 && (j2 += "&sort=".concat(encodeURIComponent(t)))
             }
             _2.push(new p(z2, j2))
           }
           var A2 = "Все";
-          if (a) {
-            var I2 = Object.entries(e.menu.categories).find(function (e) {
-              var t = _slicedToArray(e, 2); t[0]; return t[1] === a
-            });
-            I2 && (A2 = I2[0])
-          }
+          if (a) { var I2 = Object.entries(e.menu.categories).find(function (e) { var t = _slicedToArray(e, 2); t[0]; return t[1] === a }); I2 && (A2 = I2[0]) }
           l2.push(new p("Категория: " + A2, "submenu", void 0, _2))
         }
         return l2
@@ -2009,11 +1293,7 @@ function _toPrimitive(e, t) {
       key: "toPlaylist",
       value: function (e, t) {
         var a, n = t.contentParse,
-          r = function (e, t, a) {
-            for (var n = e.evaluate(t, a || e, null, XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null),
-              r = [], i = 0; i < n.snapshotLength; i++) r.push(n.snapshotItem(i));
-            return r
-          }(e, n.nodes),
+          r = function (e, t, a) { for (var n = e.evaluate(t, a || e, null, XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null), r = [], i = 0; i < n.snapshotLength; i++) r.push(n.snapshotItem(i)); return r }(e, n.nodes),
           i = [], o2 = _createForOfIteratorHelper(r);
         try {
           for (o2.s(); !(a = o2.n()).done;) {
@@ -2023,36 +1303,22 @@ function _toPrimitive(e, t) {
               d2 = n.img ? x(e, n.img.node, l2) : null,
               h2 = n.duration ? x(e, n.duration.node, l2) : null,
               m2 = n.preview ? x(e, n.preview.node, l2) : null,
-              g2 = c2 ? (c2.textContent || "").trim()
-                : (null == p2 ? void 0 : p2.getAttribute("title")) || "",
+              g2 = c2 ? (c2.textContent || "").trim() : (null == p2 ? void 0 : p2.getAttribute("title")) || "",
               y2 = p2 && p2.getAttribute(n.href.attribute || "href") || "",
               v2 = n.img ? C(d2, n.img.attributes || n.img.attribute || "src") : "",
               b2 = n.preview ? C(m2, n.preview.attribute || "data-preview") : null,
               f2 = h2 ? (h2.textContent || "").trim() : null;
-            if (v2 && ((v2 = v2.replace(/&amp;/g, "&").replace(/\\/g, "")).startsWith("../")
-              ? v2 = "".concat(t.host, "/").concat(v2.replace("../", ""))
-              : v2.startsWith("//") ? v2 = "https:".concat(v2)
-                : v2.startsWith("/") ? v2 = t.host + v2
-                  : v2.startsWith("http") || (v2 = "".concat(t.host, "/").concat(v2))),
+            if (v2 && ((v2 = v2.replace(/&amp;/g, "&").replace(/\\/g, "")).startsWith("../") ? v2 = "".concat(t.host, "/").concat(v2.replace("../", "")) : v2.startsWith("//") ? v2 = "https:".concat(v2) : v2.startsWith("/") ? v2 = t.host + v2 : v2.startsWith("http") || (v2 = "".concat(t.host, "/").concat(v2))),
               y2 && g2 && v2) {
-              var k2 = y2.startsWith("http") ? y2
-                : t.host.replace(/\/?$/, "/") + y2.replace(/^\/?/, ""),
-                w2 = null;
+              var k2 = y2.startsWith("http") ? y2 : t.host.replace(/\/?$/, "/") + y2.replace(/^\/?/, ""), w2 = null;
               if (n.model) {
-                var _2 = n.model.name ? x(e, n.model.name.node, l2) : null,
-                  S2 = n.model.href ? x(e, n.model.href.node, l2) : null;
+                var _2 = n.model.name ? x(e, n.model.name.node, l2) : null, S2 = n.model.href ? x(e, n.model.href.node, l2) : null;
                 if (_2 && S2 && n.model.href) {
-                  var P2 = (_2.textContent || "").trim(),
-                    z2 = S2.getAttribute(n.model.href.attribute || "href") || "";
-                  P2 && z2 && (w2 = {
-                    uri: "nexthub://".concat(t.displayname.toLowerCase(), "?mode=model&model=")
-                      .concat(encodeURIComponent(z2)),
-                    name: P2
-                  })
+                  var P2 = (_2.textContent || "").trim(), z2 = S2.getAttribute(n.model.href.attribute || "href") || "";
+                  P2 && z2 && (w2 = { uri: "nexthub://".concat(t.displayname.toLowerCase(), "?mode=model&model=").concat(encodeURIComponent(z2)), name: P2 })
                 }
               }
-              i.push(new u(g2, k2, v2, b2, f2, null, !0,
-                (null === (s2 = t.view) || void 0 === s2 ? void 0 : s2.related) || !1, w2))
+              i.push(new u(g2, k2, v2, b2, f2, null, !0, (null === (s2 = t.view) || void 0 === s2 ? void 0 : s2.related) || !1, w2))
             }
           }
         } catch (e) { o2.e(e) } finally { o2.f() }
@@ -2065,51 +1331,34 @@ function _toPrimitive(e, t) {
         return _regenerator().w(function (e) {
           for (;;) switch (e.n) {
             case 0:
-              if (s2 = {},
-                null === (n = a.view) || void 0 === n || null === (n = n.iframe) || void 0 === n || !n.pattern) {
-                e.n = 2; break
-              }
-              if (c2 = new RegExp(a.view.iframe.pattern, "g"), !(u2 = c2.exec(t)) || !u2[1]) {
-                e.n = 2; break
-              }
-              return p2 = u2[1], d2 = p2.startsWith("http") ? p2 : a.host + p2,
-                e.n = 1, l.Get(d2, void 0, a.charset);
+              if (s2 = {}, null === (n = a.view) || void 0 === n || null === (n = n.iframe) || void 0 === n || !n.pattern) { e.n = 2; break }
+              if (c2 = new RegExp(a.view.iframe.pattern, "g"), !(u2 = c2.exec(t)) || !u2[1]) { e.n = 2; break }
+              return p2 = u2[1], d2 = p2.startsWith("http") ? p2 : a.host + p2, e.n = 1, l.Get(d2, void 0, a.charset);
             case 1: t = e.v;
             case 2:
               if (null === (r = a.view) || void 0 === r || !r.eval) { e.n = 3; break }
-              try {
-                h2 = new Function("html", a.view.eval),
-                  (g2 = h2(t)) && (s2.auto = g2.replace(/&amp;/g, "&").replace(/\\/g, ""))
-              } catch (e) { console.error("Eval execution error:", e) }
+              try { h2 = new Function("html", a.view.eval), (g2 = h2(t)) && (s2.auto = g2.replace(/&amp;/g, "&").replace(/\\/g, "")) } catch (e) { console.error("Eval execution error:", e) }
               e.n = 15; break;
             case 3:
               if (null === (i = a.view) || void 0 === i || !i.nodeFile) { e.n = 4; break }
-              y2 = _(t),
-                (v2 = x(y2, a.view.nodeFile.node)) && (b2 = C(v2, a.view.nodeFile.attribute))
-                && (s2.auto = b2.replace(/&amp;/g, "&").replace(/\\/g, "")),
+              y2 = _(t), (v2 = x(y2, a.view.nodeFile.node)) && (b2 = C(v2, a.view.nodeFile.attribute)) && (s2.auto = b2.replace(/&amp;/g, "&").replace(/\\/g, "")),
                 e.n = 15; break;
             case 4:
-              if (null !== (f2 = a.view) && void 0 !== f2 && null !== (f2 = f2.regexMatch)
-                && void 0 !== f2 && f2.pattern) { e.n = 5; break }
+              if (null !== (f2 = a.view) && void 0 !== f2 && null !== (f2 = f2.regexMatch) && void 0 !== f2 && f2.pattern) { e.n = 5; break }
               return e.a(2, new m(s2, []));
             case 5:
-              k2 = a.view.regexMatch.matches || [""],
-                w2 = _createForOfIteratorHelper(k2), e.p = 6, w2.s();
+              k2 = a.view.regexMatch.matches || [""], w2 = _createForOfIteratorHelper(k2), e.p = 6, w2.s();
             case 7:
               if ((S2 = w2.n()).done) { e.n = 12; break }
-              P2 = S2.value,
-                (z2 = a.view.regexMatch.pattern).includes("{value}") && (z2 = z2.replace("{value}", P2)),
+              P2 = S2.value, (z2 = a.view.regexMatch.pattern).includes("{value}") && (z2 = z2.replace("{value}", P2)),
                 L2 = new RegExp(z2, "g"), j2 = void 0, M2 = !1;
             case 8:
               if (!(j2 = L2.exec(t))) { e.n = 10; break }
               if (T2 = j2[1]) { e.n = 9; break }
               return e.a(3, 8);
             case 9:
-              A2 = T2,
-                a.view.regexMatch.format && (A2 = a.view.regexMatch.format
-                  .replace("{host}", a.host).replace("{value}", T2)),
-                s2.auto = A2.replace(/&amp;/g, "&").replace(/\\/g, ""),
-                M2 = !0, e.n = 8; break;
+              A2 = T2, a.view.regexMatch.format && (A2 = a.view.regexMatch.format.replace("{host}", a.host).replace("{value}", T2)),
+                s2.auto = A2.replace(/&amp;/g, "&").replace(/\\/g, ""), M2 = !0, e.n = 8; break;
             case 10:
               if (!M2) { e.n = 11; break }
               return e.a(3, 12);
@@ -2118,9 +1367,7 @@ function _toPrimitive(e, t) {
             case 13: e.p = 13, O2 = e.v, w2.e(O2);
             case 14: return e.p = 14, w2.f(), e.f(14);
             case 15:
-              return I2 = [],
-                null !== (o2 = a.view) && void 0 !== o2 && o2.related &&
-                (B2 = _(t), I2.push.apply(I2, _toConsumableArray(this.toPlaylist(B2, a)))),
+              return I2 = [], null !== (o2 = a.view) && void 0 !== o2 && o2.related && (B2 = _(t), I2.push.apply(I2, _toConsumableArray(this.toPlaylist(B2, a)))),
                 e.a(2, new m(s2, I2))
           }
         }, e, this, [[6, 13, 14, 15]])
@@ -2132,57 +1379,38 @@ function _toPrimitive(e, t) {
         return _regenerator().w(function (e) {
           for (;;) switch (e.n) {
             case 0:
-              if (a = new URL(t),
-                n = a.hostname || a.pathname.replace(/^\//, "") || t.replace("nexthub://", "").split("?")[0],
-                r = this.cfgs.find(function (e) {
-                  return e.displayname.toLowerCase() === n.toLowerCase()
-                })) { e.n = 1; break }
+              if (a = new URL(t), n = a.hostname || a.pathname.replace(/^\//, "") || t.replace("nexthub://", "").split("?")[0],
+                r = this.cfgs.find(function (e) { return e.displayname.toLowerCase() === n.toLowerCase() })) { e.n = 1; break }
               return e.a(2, "unknown nexthub site");
             case 1:
               if (console.log("NextHub: Invoke ".concat(t)),
-                "view" !== (i = a.searchParams.get("mode") || "list") && "related" !== i) {
-                e.n = 5; break
-              }
+                "view" !== (i = a.searchParams.get("mode") || "list") && "related" !== i) { e.n = 5; break }
               if (o2 = a.searchParams.get("href")) { e.n = 2; break }
               return e.a(2, "no href param");
             case 2:
-              return s2 = decodeURIComponent(o2),
-                c2 = s2.replace("&related?pg=1", ""),
-                e.n = 3, l.Get(c2, void 0, r.charset);
+              return s2 = decodeURIComponent(o2), c2 = s2.replace("&related?pg=1", ""), e.n = 3, l.Get(c2, void 0, r.charset);
             case 3: return u2 = e.v, e.n = 4, this.extractStreams(u2, r);
             case 4:
-              return p2 = e.v,
-                e.a(2, new h(p2, "related" === i || s2.includes("&related")));
+              return p2 = e.v, e.a(2, new h(p2, "related" === i || s2.includes("&related")));
             case 5:
               if ("model" !== i) { e.n = 8; break }
               if (d2 = a.searchParams.get("model")) { e.n = 6; break }
               return e.a(2, "no model param");
             case 6:
-              return m2 = Number(a.searchParams.get("pg") || "1"),
-                g2 = this.buildModelUrl(r, d2, m2),
-                e.n = 7, l.Get(g2, void 0, r.charset);
+              return m2 = Number(a.searchParams.get("pg") || "1"), g2 = this.buildModelUrl(r, d2, m2), e.n = 7, l.Get(g2, void 0, r.charset);
             case 7:
-              return y2 = e.v, v2 = _(y2),
-                e.a(2, { menu: this.buildMenu(r, void 0, void 0, !1), list: this.toPlaylist(v2, r) });
+              return y2 = e.v, v2 = _(y2), e.a(2, { menu: this.buildMenu(r, void 0, void 0, !1), list: this.toPlaylist(v2, r) });
             case 8:
               if ("search" !== i) { e.n = 10; break }
-              return b2 = a.searchParams.getAll("search"),
-                f2 = b2.find(function (e) { return "" !== e.trim() }) || "",
-                k2 = Number(a.searchParams.get("pg") || "1"),
-                w2 = this.buildSearchUrl(r, f2, k2),
-                e.n = 9, l.Get(w2, void 0, r.charset);
+              return b2 = a.searchParams.getAll("search"), f2 = b2.find(function (e) { return "" !== e.trim() }) || "",
+                k2 = Number(a.searchParams.get("pg") || "1"), w2 = this.buildSearchUrl(r, f2, k2), e.n = 9, l.Get(w2, void 0, r.charset);
             case 9:
-              return x2 = e.v, C2 = _(x2),
-                e.a(2, { menu: this.buildMenu(r, void 0, void 0, !1), list: this.toPlaylist(C2, r) });
+              return x2 = e.v, C2 = _(x2), e.a(2, { menu: this.buildMenu(r, void 0, void 0, !1), list: this.toPlaylist(C2, r) });
             case 10:
-              return S2 = a.searchParams.get("sort") || "",
-                P2 = a.searchParams.get("cat") || "",
-                z2 = Number(a.searchParams.get("pg") || "1"),
-                L2 = this.buildListUrl(r, z2, S2, P2),
-                e.n = 11, l.Get(L2, void 0, r.charset);
+              return S2 = a.searchParams.get("sort") || "", P2 = a.searchParams.get("cat") || "",
+                z2 = Number(a.searchParams.get("pg") || "1"), L2 = this.buildListUrl(r, z2, S2, P2), e.n = 11, l.Get(L2, void 0, r.charset);
             case 11:
-              return j2 = e.v, M2 = _(j2),
-                e.a(2, { menu: this.buildMenu(r, S2, P2, !1), list: this.toPlaylist(M2, r) });
+              return j2 = e.v, M2 = _(j2), e.a(2, { menu: this.buildMenu(r, S2, P2, !1), list: this.toPlaylist(M2, r) });
             case 12: return e.a(2)
           }
         }, e, this)
@@ -2190,12 +1418,9 @@ function _toPrimitive(e, t) {
     }]);
     var e, t
   }(), s.host = "nexthub://", s),
-  // ============================================================
-  // [BLOCK:12:END]
-  // ============================================================
 
   // ============================================================
-  // [BLOCK:13:START] NEXTHUB_CONFIGS
+  // [BLOCK:13] NEXTHUB_CONFIGS
   // ============================================================
   P = [
     { enable: !0, displayname: "PornHub", host: "https://rt.pornhub.com", menu: { route: { sort: "{host}/video?o={sort}&page={page}", model: "{host}{model}/videos?page={page}", cat: "{host}/video?c={cat}&page={page}", catsort: "{host}/video?c={cat}&o={sort}&page={page}" }, sort: { "Недавно в Избранном": "", "Новые": "cm", "Популярные": "mv", "Лучшие": "tr", "Горячие": "ht" }, categories: { "Все": "", "Азиатки": "1", "Анальный секс": "35", "Арабское": "98", "БДСМ": "10", "Бисексуалы": "76", "Блондинки": "9", "Большая грудь": "8", "Большие члены": "7", "Брюнетки": "11", "Зрелые": "28", "Лесбиянки": "27", "Любительское": "3", "Мамочки": "29", "Межрассовый Секс": "25", "Минет": "13", "Попки": "4", "Русское": "99", "Секс втроем": "65" } }, list: { uri: "video?page={page}" }, search: { uri: "video/search?search={search}&page={page}" }, contentParse: { nodes: "//li[contains(@class,'videoblock')] | //div[contains(@class,'video-list') or contains(@class,'videos')]//li[contains(@class,'videoblock')] | //ul[@id='videoCategory']//li[contains(@class,'videoblock')]", name: { node: ".//a[@data-event='thumb_click'] | .//a[@class='gtm-event-thumb-click'] | .//span[@class='title']//a" }, href: { node: ".//a[contains(@class,'linkVideoThumb')] | .//a[contains(@class,'title')]", attribute: "href" }, img: { node: ".//img | .//a[contains(@class,'linkVideoThumb')]//img", attributes: ["data-mediumthumb", "data-thumb_url", "data-image", "src"] }, preview: { node: ".//img | .//a[contains(@class,'linkVideoThumb')]//img", attribute: "data-mediabook" }, duration: { node: ".//*[contains(@class,'duration')]" }, model: { name: { node: ".//a[contains(@href,'/model/')]" }, href: { node: ".//a[contains(@href,'/model/')]", attribute: "href" } } }, view: { related: !0, regexMatch: { matches: ["1080", "720", "480", "360", "240"], pattern: '"videoUrl":"([^"]+)","quality":"{value}"' } } },
@@ -2226,27 +1451,12 @@ function _toPrimitive(e, t) {
     { enable: !0, displayname: "GayPornTube", host: "https://www.gayporntube.com", menu: { route: { sort: "{host}/{sort}/page{page}.html" }, sort: { "Новые": "most-recent", "Топ по рейтингу": "top-rated", "Длинные": "longest" } }, list: { uri: "page{page}.html" }, search: { uri: "search/videos/{search}/page{page}.html" }, contentParse: { nodes: "//div[contains(@class,'item') and contains(@class,'item-col')]", name: { node: ".//a[contains(@class,'title')]" }, href: { node: ".//a[contains(@class,'title')]", attribute: "href" }, img: { node: ".//img", attributes: ["data-src", "src"] }, preview: { node: ".//img", attribute: "data-preview" }, duration: { node: ".//div[contains(@class,'duration')]" } }, view: { related: !0, regexMatch: { pattern: 'src="([^"]+)" type="video/mp4"' } } },
     { enable: !0, displayname: "Vtrahe", host: "https://site.vtrahehd.tv", charset: "windows-1251", menu: { route: { sort: "{host}/{sort}/page/{page}/", cat: "{host}/{cat}/page/{page}/" }, sort: { "Новинки": "", "Рейтинговое": "top", "Популярнаe": "most-popular" }, categories: { "Русское": "russkoe-porno", "Анал": "analnoe-porno", "Зрелые": "zrelye-zhenshhiny" } }, list: { uri: "latest-updates/page/{page}/", firstpage: "" }, search: { uri: "?do=search&subaction=search&search_start={page}&full_search=0&result_from=25&story={search}" }, contentParse: { nodes: "//div[@class='innercont']", name: { node: ".//div[@class='preview_title']//a" }, href: { node: ".//a", attribute: "href" }, img: { node: ".//img", attribute: "src" }, duration: { node: ".//div[@class='dlit']" } }, view: { related: !0, eval: 'const match = html.match(/data-c="([^"]+)"/);if (!match) return null;const e = match[1].split(\';\');const videoId = parseInt(e[4]) || 0;const folder = 1000 * Math.floor(videoId / 1000);const qualitySuffix = e[1] === "720p" ? "" : "_" + e[1];return `https://${e[7]}.vstor.top/whlvid/${e[5]}/${e[6]}/${folder}/${videoId}/${videoId}${qualitySuffix}.mp4/${videoId}${qualitySuffix}.mp4`;' } },
     { enable: !0, displayname: "VtraheTV", host: "https://my.vtrahe.work", menu: { route: { sort: "{host}/{sort}/page/{page}/", cat: "{host}/{cat}/page/{page}/" }, sort: { "Новинки": "", "Рейтинговое": "top", "Популярнаe": "most-popular" }, categories: { "Русское": "russkoye", "Анал": "anal", "Зрелые": "zrelyye", "Мамки": "mamki" } }, list: { uri: "page/{page}/" }, search: { uri: "search/{search}/page/{page}/" }, contentParse: { nodes: "//div[@class='innercont']", name: { node: ".//div[@class='preview_title']//a" }, href: { node: ".//a", attribute: "href" }, img: { node: ".//img", attribute: "src" }, duration: { node: ".//div[@class='dlit']" } }, view: { related: !0, eval: "const match = html.match(/data-c=\"([^\"]+)\"/);if (!match) return null;const e = match[1].split(';');return `https://v${e[7]}.cdnde.com/x${e[7]}/upload_${e[0].replace(/^_/, '')}/${e[4]}/JOPORN_NET_${e[4]}_${e[1]}.mp4?time=${e[5]}`;" } },
-    {
-      enable: !0, displayname: "TrahKino", host: "https://trahkino.me",
-      menu: { route: { sort: "{host}/{sort}/{page}/", cat: "{host}/categories/{cat}/{page}/" }, sort: { "Новое": "latest-updates", "Лучшее": "top-rated", "Популярное": "most-popular" }, categories: { "Все": "", "Любительское": "lyubitelskiy-seks", "Большие сиськи": "bolshie-siski", "Большие попки": "bolshie-popki", "Минет": "minet", "Блондинки": "blondinki", "Брюнетки": "bryunetki", "Хардкор": "hardkor", "Милфы": "milfy", "Красотки": "krasotki", "Большие члены": "bolshie-hui", "Наездница": "naezdnica", "Маленькие сиськи": "malenkie-siski", "Бритые киски": "britye-kiski", "Красивое": "krasivyy-seks", "Азиатки": "aziatki", "Кончают внутрь": "konchayut-vnutr", "Медсестра": "medsestra", "Анал": "anal", "МЖМ": "mjm", "Раком": "rakom", "Дрочка члена": "drochka-chlena", "Жесть": "jest", "На кровати": "na-krovati", "Реальное": "realnyy-seks", "Женский оргазм": "jenskiy-orgazm", "В нижнем белье": "v-nijnem-bele", "Японки": "yaponki", "Домашнее": "domashka", "Full HD": "full-hd", "Жёны": "jeny", "В чулках": "v-chulkah", "На каблуках": "na-kablukah", "В очках": "v-ochkah", "Толстушки": "tolstye", "В ванной": "v-vannoy", "Ролевые игры": "rolevye-igry", "Пьяные": "pyanye", "Стриптиз": "striptiz", "Мультики": "multiki", "В туалете": "v-tualete" } },
-      list: { uri: "latest-updates/{page}/", firstpage: "{host}" }, search: { uri: "search/{page}/?q={search}" },
-      contentParse: { nodes: "//div[contains(@class,'item')]", name: { node: ".//strong[contains(@class,'title')]" }, href: { node: ".//a", attribute: "href" }, img: { node: ".//img", attributes: ["data-original", "data-src", "src"] }, duration: { node: ".//div[contains(@class,'duration')]" } },
-      view: { related: !0, regexMatch: { matches: ["1080p", "720p", "480p", "360p"], pattern: "function/0/(https://[^/]+/get_file/[^']+_{value}\\.mp4)/" } }
-    },
-    {
-      enable: !0, displayname: "UkDevilz", host: "https://w0w.ukdevilz.com",
-      menu: { route: { sort: "{host}/{sort}?p={page}" }, sort: { "Новинки": "", "Популярное": "popular" } },
-      list: { uri: "now?p={page}" }, search: { uri: "video/{search}?p={page}" },
-      contentParse: { nodes: "//div[contains(@class, 'item')]", name: { node: ".//div[@class='title'] | .//h3 | .//a[@class='title']" }, href: { node: ".//a", attribute: "href" }, img: { node: ".//img", attribute: "data-src" }, duration: { node: ".//div[@class='m_time'] | .//span[@class='time'] | .//div[contains(@class,'duration')]" }, preview: { node: ".//div", attribute: "data-trailer_url" } },
-      view: { related: !0, regexMatch: { pattern: '"file":"([^"]+)"' } }
-    }
-  ]; // конец массива P
-  // ============================================================
-  // [BLOCK:13:END]
-  // ============================================================
+    { enable: !0, displayname: "TrahKino", host: "https://trahkino.me", menu: { route: { sort: "{host}/{sort}/{page}/", cat: "{host}/categories/{cat}/{page}/" }, sort: { "Новое": "latest-updates", "Лучшее": "top-rated", "Популярное": "most-popular" }, categories: { "Все": "", "Любительское": "lyubitelskiy-seks", "Большие сиськи": "bolshie-siski", "Большие попки": "bolshie-popki", "Минет": "minet", "Блондинки": "blondinki", "Брюнетки": "bryunetki", "Хардкор": "hardkor", "Милфы": "milfy", "Красотки": "krasotki", "Большие члены": "bolshie-hui", "Наездница": "naezdnica", "Маленькие сиськи": "malenkie-siski", "Бритые киски": "britye-kiski", "Красивое": "krasivyy-seks", "Азиатки": "aziatki", "Кончают внутрь": "konchayut-vnutr", "Медсестра": "medsestra", "Анал": "anal", "МЖМ": "mjm", "Раком": "rakom", "Дрочка члена": "drochka-chlena", "Жесть": "jest", "На кровати": "na-krovati", "Реальное": "realnyy-seks", "Женский оргазм": "jenskiy-orgazm", "В нижнем белье": "v-nijnem-bele", "Японки": "yaponki", "Домашнее": "domashka", "Full HD": "full-hd", "Жёны": "jeny", "В чулках": "v-chulkah", "На каблуках": "na-kablukah", "В очках": "v-ochkah", "Толстушки": "tolstye", "В ванной": "v-vannoy", "Ролевые игры": "rolevye-igry", "Пьяные": "pyanye", "Стриптиз": "striptiz", "Мультики": "multiki", "В туалете": "v-tualete" } }, list: { uri: "latest-updates/{page}/", firstpage: "{host}" }, search: { uri: "search/{page}/?q={search}" }, contentParse: { nodes: "//div[contains(@class,'item')]", name: { node: ".//strong[contains(@class,'title')]" }, href: { node: ".//a", attribute: "href" }, img: { node: ".//img", attributes: ["data-original", "data-src", "src"] }, duration: { node: ".//div[contains(@class,'duration')]" } }, view: { related: !0, regexMatch: { matches: ["1080p", "720p", "480p", "360p"], pattern: "function/0/(https://[^/]+/get_file/[^']+_{value}\\.mp4)/" } } },
+    { enable: !0, displayname: "UkDevilz", host: "https://w0w.ukdevilz.com", menu: { route: { sort: "{host}/{sort}?p={page}" }, sort: { "Новинки": "", "Популярное": "popular" } }, list: { uri: "now?p={page}" }, search: { uri: "video/{search}?p={page}" }, contentParse: { nodes: "//div[contains(@class, 'item')]", name: { node: ".//div[@class='title'] | .//h3 | .//a[@class='title']" }, href: { node: ".//a", attribute: "href" }, img: { node: ".//img", attribute: "data-src" }, duration: { node: ".//div[@class='m_time'] | .//span[@class='time'] | .//div[contains(@class,'duration')]" }, preview: { node: ".//div", attribute: "data-trailer_url" } }, view: { related: !0, regexMatch: { pattern: '"file":"([^"]+)"' } } }
+  ];
 
   // ============================================================
-  // [BLOCK:14:START] ROUTING — экземпляры и window.AdultJS
+  // [BLOCK:14] ROUTING
   // ============================================================
   var z = new d, L = new g, j = new y, M = new v, T = new b, A = new f, I = new S(P);
 
@@ -2259,14 +1469,7 @@ function _toPrimitive(e, t) {
             case 0:
               if (!t.startsWith(d.host)) { e.n = 2; break }
               return e.n = 1, z.Invoke(t);
-            case 1:
-            case 3:
-            case 5:
-            case 7:
-            case 9:
-            case 11:
-            case 13:
-            case 15:
+            case 1: case 3: case 5: case 7: case 9: case 11: case 13: case 15:
               return e.a(2, e.v);
             case 2:
               if (!t.startsWith(g.host)) { e.n = 4; break }
@@ -2287,11 +1490,8 @@ function _toPrimitive(e, t) {
               if (!t.startsWith("nexthub://")) { e.n = 14; break }
               return e.n = 13, I.Invoke(t);
             case 14:
-              if (a = new URL(t), !(n = P.find(function (e) {
-                return e.enable && a.hostname === new URL(e.host).hostname
-              }))) { e.n = 16; break }
-              return r = "nexthub://".concat(n.displayname, "?mode=view&href=")
-                .concat(encodeURIComponent(t)), e.n = 15, I.Invoke(r);
+              if (a = new URL(t), !(n = P.find(function (e) { return e.enable && a.hostname === new URL(e.host).hostname }))) { e.n = 16; break }
+              return r = "nexthub://".concat(n.displayname, "?mode=view&href=").concat(encodeURIComponent(t)), e.n = 15, I.Invoke(r);
             case 16:
               return e.a(2, "unknown site")
           }
@@ -2299,44 +1499,33 @@ function _toPrimitive(e, t) {
       }))).apply(this, arguments)
     }
 
-    // ── [v2.0.0] Инициализация MirrorResolver при старте ─────
+    // [v2.0.0] MirrorResolver при старте
     (function () {
       MirrorResolver.resolve().then(function (mirrors) {
-        if (mirrors.xvideos)   g.host = mirrors.xvideos;
-        if (mirrors.xnxx)      y.host = mirrors.xnxx;
-        if (mirrors.spankbang) v.host = mirrors.spankbang;
-        if (mirrors.bongacams) d.host = mirrors.bongacams;
-        if (mirrors.eporner)   f.host = mirrors.eporner;
-        // chaturbate: один домен, зеркало не нужно
+        if (mirrors.xvideos)   { g.host = mirrors.xvideos;   L = new g; }
+        if (mirrors.xnxx)      { y.host = mirrors.xnxx;      j = new y; }
+        if (mirrors.spankbang) { v.host = mirrors.spankbang; M = new v; }
+        if (mirrors.bongacams) { d.host = mirrors.bongacams; z = new d; }
+        if (mirrors.eporner)   { f.host = mirrors.eporner;   A = new f; }
         console.log('[AdultJS v2.0.0] Зеркала применены:', mirrors);
       }).catch(function (err) {
         console.warn('[AdultJS v2.0.0] MirrorResolver error:', err);
       });
     })();
 
-    // ── [v1.3.1] Хранилище статусов ──────────────────────────
+    // [v1.3.1] Хранилище статусов
     window.AdultJS_Status = window.AdultJS_Status || (function () {
       var STORAGE_KEY = 'adultjs_site_status';
       var _dot = { green: '🟢', yellow: '🟡', red: '🔴' };
       function _load() {
-        try {
-          var raw = Lampa.Storage.get(STORAGE_KEY, '{}');
-          return (typeof raw === 'string') ? JSON.parse(raw) : (raw || {});
-        } catch (e) { return {}; }
+        try { var raw = Lampa.Storage.get(STORAGE_KEY, '{}'); return (typeof raw === 'string') ? JSON.parse(raw) : (raw || {}); }
+        catch (e) { return {}; }
       }
-      function _save(store) {
-        try { Lampa.Storage.set(STORAGE_KEY, JSON.stringify(store)); } catch (e) {}
-      }
+      function _save(store) { try { Lampa.Storage.set(STORAGE_KEY, JSON.stringify(store)); } catch (e) {} }
       return {
-        set: function (name, status) {
-          var store = _load(); store[name.toLowerCase()] = status; _save(store);
-        },
-        dot: function (name) {
-          var store = _load(); var s = store[name.toLowerCase()]; return _dot[s] || _dot.green;
-        },
-        get: function (name) {
-          var store = _load(); return store[name.toLowerCase()] || 'green';
-        },
+        set: function (name, status) { var store = _load(); store[name.toLowerCase()] = status; _save(store); },
+        dot: function (name) { var store = _load(); var s = store[name.toLowerCase()]; return _dot[s] || _dot.green; },
+        get: function (name) { var store = _load(); return store[name.toLowerCase()] || 'green'; },
         reset: function () { _save({}); },
         invalidateMenu: function () { window._adultjs_menu_dirty = true; }
       };
@@ -2354,53 +1543,36 @@ function _toPrimitive(e, t) {
         ];
         P.filter(function (e) { return e.enable; }).forEach(function (t) {
           var name = t.displayname.toLowerCase();
-          e.push({
-            title:        window.AdultJS_Status.dot(name) + ' ' + name,
-            playlist_url: 'nexthub://' + t.displayname + '?mode=list'
-          });
+          e.push({ title: window.AdultJS_Status.dot(name) + ' ' + name, playlist_url: 'nexthub://' + t.displayname + '?mode=list' });
         });
-        // ── [v1.2.0-debug] Диагностика ──
         e.push({ title: '📝 Диагностика источников', playlist_url: '__adultjs_debug__', debug_action: true });
-        // ── [v2.0.0] Обновление зеркал ──
-        e.push({ title: '🔄 Обновить зеркала', playlist_url: '__adultjs_mirrors__', debug_action: true, mirror_action: true });
+        e.push({ title: '🔄 Обновить зеркала', playlist_url: '__adultjs_mirrors__', mirror_action: true });
         return e;
       },
       Invoke: function (t) { return e.apply(this, arguments); }
     };
   }();
-  // ============================================================
-  // [BLOCK:14:END]
-  // ============================================================
 
   // ============================================================
-  // [BLOCK:15:START] DEBUG_MODULE v2.0.0
+  // [BLOCK:15] DEBUG_MODULE v2.0.0
   // ============================================================
   window.AdultJS_Debugger = (function () {
-
     var TIMEOUT_MS      = 8000;
     var NOTIFY_PAUSE_MS = 3000;
     var NOTIFY_LAST_MS  = 5000;
 
-    // ── Список всех источников ───────────────────────────────
     function getAllSources() {
       var fixed = [
-        { name: 'bongacams',  url: d.host },
-        { name: 'xvideos',    url: g.host },
-        { name: 'xnxx',       url: y.host },
-        { name: 'spankbang',  url: v.host },
-        { name: 'chaturbate', url: b.host },
-        { name: 'eporner',    url: f.host }
+        { name: 'bongacams',  url: d.host }, { name: 'xvideos',    url: g.host },
+        { name: 'xnxx',       url: y.host }, { name: 'spankbang',  url: v.host },
+        { name: 'chaturbate', url: b.host }, { name: 'eporner',    url: f.host }
       ];
-      var nexthub = P.filter(function (cfg) { return cfg.enable; }).map(function (cfg) {
-        return { name: cfg.displayname, url: cfg.host };
-      });
+      var nexthub = P.filter(function (cfg) { return cfg.enable; }).map(function (cfg) { return { name: cfg.displayname, url: cfg.host }; });
       return fixed.concat(nexthub);
     }
 
-    // ── Уведомление ──────────────────────────────────────────
     function notify(msg) { try { Lampa.Noty.show(msg); } catch (e) {} }
 
-    // ── Очередь уведомлений ───────────────────────────────────
     function notifyQueue(messages) {
       if (!messages || !messages.length) return;
       var i = 0;
@@ -2414,76 +1586,46 @@ function _toPrimitive(e, t) {
       showNext();
     }
 
-    // ── Проверка одного источника ─────────────────────────────
     function checkSource(sourceObj) {
       var name    = sourceObj.name;
       var url     = sourceObj.url;
       var testUrl = url;
-
-      // Для nexthub — строим реальный URL
       if (url.startsWith('nexthub://')) {
-        var cfg = P.find(function (c) {
-          return c.displayname.toLowerCase() === name.toLowerCase();
-        });
+        var cfg = P.find(function (c) { return c.displayname.toLowerCase() === name.toLowerCase(); });
         if (cfg && cfg.list) {
-          testUrl = (cfg.list.firstpage || cfg.list.uri || '')
-            .replace('{host}', cfg.host).replace('{page}', '1')
-            .replace('{sort}', '').replace('{cat}', '');
-          if (!testUrl.startsWith('http')) {
-            testUrl = cfg.host.replace(/\/?$/, '/') + testUrl.replace(/^\//, '');
-          }
+          testUrl = (cfg.list.firstpage || cfg.list.uri || '').replace('{host}', cfg.host).replace('{page}', '1').replace('{sort}', '').replace('{cat}', '');
+          if (!testUrl.startsWith('http')) testUrl = cfg.host.replace(/\/?$/, '/') + testUrl.replace(/^\//, '');
         } else { testUrl = ''; }
       }
-
-      if (!testUrl) {
-        return Promise.resolve({ name: name, ok: false, cards: 0, error: 'Нет URL' });
-      }
-
+      if (!testUrl) return Promise.resolve({ name: name, ok: false, cards: 0, error: 'Нет URL' });
       return new Promise(function (resolve) {
-        var timer = setTimeout(function () {
-          resolve({ name: name, ok: false, cards: 0, error: 'Таймаут ' + TIMEOUT_MS + 'мс' });
-        }, TIMEOUT_MS);
-
-        requestWithRetry(testUrl, {
-          method: 'GET',
-          headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }
-        }, 1).then(function (resp) {
-          clearTimeout(timer);
-          if (!resp.ok) {
-            resolve({ name: name, ok: false, cards: 0, error: 'HTTP ' + resp.status });
-            return;
-          }
-          return resp.text().then(function (html) {
-            var cardCount = 0;
-            try {
-              var cfg2 = P.find(function (c) { return c.displayname.toLowerCase() === name.toLowerCase(); });
-              if (cfg2 && cfg2.contentParse && cfg2.contentParse.nodes) {
-                var doc   = (new DOMParser()).parseFromString(html, 'text/html');
-                var nodes = doc.evaluate(cfg2.contentParse.nodes, doc, null,
-                  XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null);
-                cardCount = nodes.snapshotLength;
-              } else {
-                var matches = html.match(/data-src=/g);
-                cardCount = matches ? matches.length : 0;
-              }
-            } catch (ex) { cardCount = -1; }
-            resolve({ name: name, ok: true, cards: cardCount, error: null });
-          });
-        }).catch(function (err) {
-          clearTimeout(timer);
-          resolve({ name: name, ok: false, cards: 0, error: err.message || 'Ошибка сети' });
-        });
+        var timer = setTimeout(function () { resolve({ name: name, ok: false, cards: 0, error: 'Таймаут ' + TIMEOUT_MS + 'мс' }); }, TIMEOUT_MS);
+        requestWithRetry(testUrl, { method: 'GET', headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' } }, 1)
+          .then(function (resp) {
+            clearTimeout(timer);
+            if (!resp.ok) { resolve({ name: name, ok: false, cards: 0, error: 'HTTP ' + resp.status }); return; }
+            return resp.text().then(function (html) {
+              var cardCount = 0;
+              try {
+                var cfg2 = P.find(function (c) { return c.displayname.toLowerCase() === name.toLowerCase(); });
+                if (cfg2 && cfg2.contentParse && cfg2.contentParse.nodes) {
+                  var doc   = (new DOMParser()).parseFromString(html, 'text/html');
+                  var nodes = doc.evaluate(cfg2.contentParse.nodes, doc, null, XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null);
+                  cardCount = nodes.snapshotLength;
+                } else { var matches = html.match(/data-src=/g); cardCount = matches ? matches.length : 0; }
+              } catch (ex) { cardCount = -1; }
+              resolve({ name: name, ok: true, cards: cardCount, error: null });
+            });
+          })
+          .catch(function (err) { clearTimeout(timer); resolve({ name: name, ok: false, cards: 0, error: err.message || 'Ошибка сети' }); });
       });
     }
 
-    // ── Применить статусы в Lampa.Storage ─────────────────────
     function _applyStatuses(results) {
       var STORAGE_KEY = 'adultjs_site_status';
       var store = {};
-      try {
-        var raw = Lampa.Storage.get(STORAGE_KEY, '{}');
-        store = (typeof raw === 'string') ? JSON.parse(raw) : (raw || {});
-      } catch (e) { store = {}; }
+      try { var raw = Lampa.Storage.get(STORAGE_KEY, '{}'); store = (typeof raw === 'string') ? JSON.parse(raw) : (raw || {}); }
+      catch (e) { store = {}; }
       results.forEach(function (r) {
         var status = !r.ok ? 'red' : (r.cards >= 0 && r.cards < 3) ? 'yellow' : 'green';
         store[r.name.toLowerCase()] = status;
@@ -2491,94 +1633,49 @@ function _toPrimitive(e, t) {
       try { Lampa.Storage.set(STORAGE_KEY, JSON.stringify(store)); } catch (e) {}
     }
 
-    // ── Основная диагностика ──────────────────────────────────
     function runAll() {
       var sources = getAllSources();
       var total   = sources.length;
       var idx     = 0;
       var results = [];
-
       if (window.AdultJS_Status) window.AdultJS_Status.reset();
       notify('🔍 Диагностика AdultJS v2.0.0: ' + total + ' источников...');
-
       function checkNext() {
         if (idx >= total) {
           var ok     = results.filter(function (r) { return r.ok; });
           var failed = results.filter(function (r) { return !r.ok; });
           var warned = results.filter(function (r) { return r.ok && r.cards >= 0 && r.cards < 3; });
-
           _applyStatuses(results);
           if (window.AdultJS_Status) window.AdultJS_Status.invalidateMenu();
-
-          var summary = '✅ ' + ok.length + ' OK'
-            + (failed.length ? ' | ❌ ' + failed.length + ' ошибок' : '')
-            + (warned.length ? ' | ⚠️ '  + warned.length + ' предупреждений' : '')
-            + ' (всего: ' + total + ')';
-
+          var summary = '✅ ' + ok.length + ' OK' + (failed.length ? ' | ❌ ' + failed.length + ' ошибок' : '') + (warned.length ? ' | ⚠️ ' + warned.length + ' предупреждений' : '') + ' (всего: ' + total + ')';
           var detailLines = [];
-          failed.forEach(function (r) {
-            detailLines.push('🔴 ' + r.name + ': ' + r.error
-              + ' [fails: ' + SourceHealth.getFailCount(r.name) + ']');
-          });
-          warned.forEach(function (r) {
-            detailLines.push('🟡 ' + r.name + ': карточек=' + r.cards + ' (проблема парсинга)');
-          });
-
-          // HealthStats — только источники с rate < 100%
+          failed.forEach(function (r) { detailLines.push('🔴 ' + r.name + ': ' + r.error + ' [fails: ' + SourceHealth.getFailCount(r.name) + ']'); });
+          warned.forEach(function (r) { detailLines.push('🟡 ' + r.name + ': карточек=' + r.cards + ' (проблема парсинга)'); });
           var healthLines = [];
           var allHealth   = SourceHealth.getAll();
-          Object.keys(allHealth).forEach(function (n) {
-            var rate = Math.round(SourceHealth.getSuccessRate(n) * 100);
-            if (rate < 100) healthLines.push(n + ': ' + rate + '%');
-          });
-
+          Object.keys(allHealth).forEach(function (n) { var rate = Math.round(SourceHealth.getSuccessRate(n) * 100); if (rate < 100) healthLines.push(n + ': ' + rate + '%'); });
           var queue = [{ text: summary }];
           if (detailLines.length > 0) queue.push({ text: detailLines.join('\n') });
           if (healthLines.length > 0) queue.push({ text: '📊 SuccessRate:\n' + healthLines.join('\n') });
           queue.push({ text: '🟢 ОК  🟡 мало карточек  🔴 недоступен\nЗначки обновлены в меню «Сайты»' });
-
           notifyQueue(queue);
           return;
         }
-
         var src = sources[idx++];
-        checkSource(src).then(function (result) {
-          results.push(result);
-          checkNext();
-        });
+        checkSource(src).then(function (result) { results.push(result); checkNext(); });
       }
-
       checkNext();
     }
 
-    // ── Диагностика зеркал ────────────────────────────────────
     function runMirrorCheck() {
       notify('🔄 Обновляем зеркала...');
       MirrorResolver.resolve(true).then(function (mirrors) {
-        var lines = Object.keys(mirrors).map(function (key) {
-          return key + ': ' + (mirrors[key] || '❌ не найдено');
-        });
-        notifyQueue([
-          { text: '✅ Зеркала обновлены (' + lines.length + ' сайтов)' },
-          { text: lines.join('\n') }
-        ]);
-      }).catch(function (err) {
-        notify('❌ Ошибка обновления зеркал: ' + (err.message || err));
-      });
+        var lines = Object.keys(mirrors).map(function (key) { return key + ': ' + (mirrors[key] || '❌ не найдено'); });
+        notifyQueue([{ text: '✅ Зеркала обновлены (' + lines.length + ' сайтов)' }, { text: lines.join('\n') }]);
+      }).catch(function (err) { notify('❌ Ошибка обновления зеркал: ' + (err.message || err)); });
     }
 
-    // Публичный API
-    return {
-      runAll:          runAll,
-      runMirrorCheck:  runMirrorCheck,
-      checkSource:     checkSource,
-      getAllSources:    getAllSources,
-      mirrorResolver:  MirrorResolver,
-      sourceHealth:    SourceHealth
-    };
+    return { runAll: runAll, runMirrorCheck: runMirrorCheck, checkSource: checkSource, getAllSources: getAllSources, mirrorResolver: MirrorResolver, sourceHealth: SourceHealth };
   })();
-  // ============================================================
-  // [BLOCK:15:END] DEBUG_MODULE v2.0.0
-  // ============================================================
 
 }();
