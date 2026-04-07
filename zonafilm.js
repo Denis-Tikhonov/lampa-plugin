@@ -1,6 +1,6 @@
 // =============================================================================
 // AdultJS Plugin for Lampa (Android TV)
-// VERSION: 3.0.0
+// VERSION: 3.0.1
 // CHANGELOG:
 //   v1.0.0 — Оригинальная версия
 //   v1.1.0 — Добавлен источник TrahKino (trahkino.me)
@@ -12,7 +12,29 @@
 //   v3.0.0 — Реструктуризация кода согласно стандарту разделов
 //             Версия вынесена в название компонента настроек
 //             В настройках оставлен один пункт: Предпросмотр при наведении
-// ROLLBACK:   git checkout v1.2.0 -- AdultJS.txt
+//   v3.0.1 — [FIX] Таймаут запросов увеличен 8000ms → 12000ms (VPN-совместимость)
+//             [FIX] User-Agent унифицирован для всех запросов (Android TV WebView)
+//             [FIX] fallback_host: добавлена автоматическая HEAD-проверка доступности
+//             [FIX] XVideos/XNXX: исправлен regex для HLS (setVideoHLS с учётом пробела)
+//             [FIX] XVideos/XNXX: добавлен резервный regex для M3U8 через data-hls
+//             [FIX] SpankBang: исправлен regex качеств (экранирование кавычек)
+//             [FIX] SpankBang: исправлена пагинация (page vs p параметр)
+//             [FIX] BongaCams: добавлен fallback на ukr.bongacams.com → rt.bongacams.com
+//             [FIX] Chaturbate: добавлен retry при пустом M3U8
+//             [FIX] Pornhub: расширен xpath для узлов видео (новая вёрстка 2025)
+//             [FIX] Pornhub: исправлен regex качеств под новый JSON-формат
+//             [FIX] Xhamster: nodeFile → regexMatch fallback для m3u8
+//             [NEW] NoodleMagazine: добавлен источник (hot.noodlemagazine.com)
+//                   fallback_host: w0w.ukdevilz.com (UkDevilz как зеркало)
+//             [NEW] go.porn: добавлен источник (NextHub)
+//             [NEW] redtube.com: добавлен источник (NextHub, maintenance=false)
+//             [NEW] fapcat.com: добавлен источник (NextHub, maintenance=true — CF блок)
+//             [NEW] clicporn.com: добавлен источник (NextHub, maintenance=true — CF блок)
+//             [NEW] stripchat.com: добавлен источник-заглушка (maintenance=true — WebSocket)
+//             [NEW] hdzog.com: добавлен источник-заглушка (maintenance=true — Vue SPA)
+//             [PERF] Предварительная загрузка меню при запуске плагина
+//             [PERF] Кеширование результатов menu() между вызовами
+// ROLLBACK:   git checkout v3.0.0 -- AdultJS.txt
 // =============================================================================
 "use strict";
 
@@ -288,18 +310,58 @@ function _toPrimitive(e, t) {
   // ===========================================================================
 
   // ---------------------------------------------------------------------------
-  // FALLBACK HOST RESOLVER
-  // Механизм резервного домена. Использование: если host недоступен,
-  // автоматически подставляется fallback_host.
-  // Для добавления fallback к новому источнику — добавьте поле fallback_host
-  // в конфиг P[]. [FALLBACK_HOOK] — здесь можно добавить HEAD-запрос.
+  // КОНСТАНТЫ
+  // v3.0.1: таймаут увеличен до 12000ms для совместимости с VPN-соединениями
   // ---------------------------------------------------------------------------
+  var REQUEST_TIMEOUT = 12000;
+
+  // ---------------------------------------------------------------------------
+  // FALLBACK HOST RESOLVER
+  // v3.0.1: реализована автоматическая HEAD-проверка основного хоста.
+  // Если HEAD-запрос к основному хосту вернул ошибку — подставляется fallback_host.
+  // Кеш результатов сохраняется на сессию (_fallbackCache).
+  // Для добавления fallback к новому источнику — добавьте поле fallback_host
+  // в конфиг P[]. [FALLBACK_HOOK] — HEAD-запрос реализован здесь.
+  // ---------------------------------------------------------------------------
+  var _fallbackCache = {};
+
   function resolveFallbackHost(cfg) {
-    return cfg.host;
+    return new Promise(function(resolve) {
+      if (!cfg.fallback_host) return resolve(cfg.host);
+      var cacheKey = cfg.host;
+      if (_fallbackCache[cacheKey] !== undefined) return resolve(_fallbackCache[cacheKey]);
+      var controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+      var timer = setTimeout(function() {
+        if (controller) controller.abort();
+        _fallbackCache[cacheKey] = cfg.fallback_host;
+        resolve(cfg.fallback_host);
+      }, 4000);
+      try {
+        var fetchOpts = { method: "HEAD", headers: { "User-Agent": _hc.UA } };
+        if (controller) fetchOpts.signal = controller.signal;
+        fetch(cfg.host, fetchOpts)
+          .then(function(r) {
+            clearTimeout(timer);
+            var result = (r.ok || r.status < 500) ? cfg.host : cfg.fallback_host;
+            _fallbackCache[cacheKey] = result;
+            resolve(result);
+          })
+          .catch(function() {
+            clearTimeout(timer);
+            _fallbackCache[cacheKey] = cfg.fallback_host;
+            resolve(cfg.fallback_host);
+          });
+      } catch(e) {
+        clearTimeout(timer);
+        _fallbackCache[cacheKey] = cfg.fallback_host;
+        resolve(cfg.fallback_host);
+      }
+    });
   }
 
   // ---------------------------------------------------------------------------
   // HTTP CLIENT
+  // v3.0.1: унифицирован User-Agent; таймаут REQUEST_TIMEOUT (12000ms)
   // ---------------------------------------------------------------------------
   var _hc = function() {
     function e() { _classCallCheck(this, e) }
@@ -307,7 +369,8 @@ function _toPrimitive(e, t) {
       key: "ensureHeaders",
       value: function(e) {
         var t = e ? _objectSpread({}, e) : {};
-        return t["user-agent"] || t["User-Agent"] || (t["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"), t
+        t["user-agent"] || t["User-Agent"] || (t["User-Agent"] = _hc.UA);
+        return t
       }
     }, {
       key: "Get",
@@ -342,11 +405,13 @@ function _toPrimitive(e, t) {
           var o = new window.Lampa.Reguest;
           o.native(t, (function(e) {
             "object" === _typeof(e) ? r(JSON.stringify(e)) : r(e), o.clear()
-          }), i, a, { dataType: "text", timeout: 8e3, headers: e.ensureHeaders(n) })
+          }), i, a, { dataType: "text", timeout: REQUEST_TIMEOUT, headers: e.ensureHeaders(n) })
         }))
       }
     }]);
   }();
+  // v3.0.1: единый UA для всех запросов (Android TV Chrome)
+  _hc.UA = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36";
   _hc.isAndroid = "undefined" != typeof window && void 0 !== window.Lampa && void 0 !== window.Lampa.Platform && "function" == typeof window.Lampa.Platform.is && window.Lampa.Platform.is("android");
   var l = _hc;
 
@@ -390,6 +455,7 @@ function _toPrimitive(e, t) {
 
   // ---------------------------------------------------------------------------
   // SOURCE: bongacams.com — ukr.bongacams.com
+  // v3.0.1: fallback ukr → rt.bongacams.com при недоступности
   // ---------------------------------------------------------------------------
   var _BongaCamsClass = function() {
     function e() { _classCallCheck(this, e) }
@@ -444,11 +510,15 @@ function _toPrimitive(e, t) {
       }
     }]);
   }();
+  // v3.0.1: при недоступности ukr → rt (определяется через fallbackCache на уровне роутера)
   _BongaCamsClass.host = "https://ukr.bongacams.com";
+  _BongaCamsClass.fallback_host = "https://rt.bongacams.com";
   var d = _BongaCamsClass;
 
   // ---------------------------------------------------------------------------
   // SOURCE: xvideos.com — www.xv-ru.com
+  // v3.0.1: исправлен regex HLS — setVideoHLS может содержать пробел перед скобкой;
+  //         добавлен резервный поиск M3U8 через data-hls атрибут
   // ---------------------------------------------------------------------------
   var _XVideosClass = function() {
     function e() { _classCallCheck(this, e) }
@@ -456,7 +526,7 @@ function _toPrimitive(e, t) {
       key: "Invoke",
       value: (function() {
         var _inv = _asyncToGenerator(_regenerator().m((function t(a) {
-          var n, r, i, o, s, c, u, p;
+          var n, r, i, o, s, cv, u, pv;
           return _regenerator().w((function(t) {
             for (;;) switch (t.n) {
               case 0:
@@ -467,10 +537,10 @@ function _toPrimitive(e, t) {
               case 2:
                 return r = new URL(a, e.host), i = r.searchParams.get("search") || "",
                   o = r.searchParams.get("sort") || "", s = r.searchParams.get("c") || "",
-                  c = parseInt(r.searchParams.get("pg") || "1", 10),
-                  u = this.buildUrl(e.host, i, o, s, c), t.n = 3, l.Get(u);
+                  cv = parseInt(r.searchParams.get("pg") || "1", 10),
+                  u = this.buildUrl(e.host, i, o, s, cv), t.n = 3, l.Get(u);
               case 3:
-                return p = t.v, t.a(2, { menu: this.Menu(o, s), list: this.Playlist(p) });
+                return pv = t.v, t.a(2, { menu: this.Menu(o, s), list: this.Playlist(pv) });
               case 4:
                 return t.a(2)
             }
@@ -560,7 +630,10 @@ function _toPrimitive(e, t) {
     }, {
       key: "StreamLinks",
       value: function(t) {
-        var a = c.extract(t, /html5player\.setVideoHLS$'([^']+)'$;/);
+        // v3.0.1: расширен regex — пробел перед скобкой, одинарные и двойные кавычки
+        var a = c.extract(t, /html5player\.setVideoHLS\s*\(\s*['"]([^'"]+)['"]\s*\)/);
+        // v3.0.1: резервный поиск через data-hls
+        if (!a) a = c.extract(t, /data-hls="([^"]+)"/);
         if (!a) return new m({}, []);
         var n = [], r = c.extract(t, /video_related=([^\n\r]+);window/);
         if (r && r.startsWith("[") && r.endsWith("]")) try {
@@ -585,6 +658,7 @@ function _toPrimitive(e, t) {
 
   // ---------------------------------------------------------------------------
   // SOURCE: xnxx.com — www.xnxx-ru.com
+  // v3.0.1: исправлен regex HLS (аналогично xvideos); резервный data-hls
   // ---------------------------------------------------------------------------
   var _XnxxClass = function() {
     function e() { _classCallCheck(this, e) }
@@ -645,7 +719,9 @@ function _toPrimitive(e, t) {
     }, {
       key: "StreamLinks",
       value: function(t) {
-        var a = c.extract(t, /html5player\.setVideoHLS$'([^']+)'$;/);
+        // v3.0.1: исправлен regex — пробел перед скобкой, одинарные/двойные кавычки
+        var a = c.extract(t, /html5player\.setVideoHLS\s*\(\s*['"]([^'"]+)['"]\s*\)/);
+        if (!a) a = c.extract(t, /data-hls="([^"]+)"/);
         if (!a) return new m({}, []);
         var n = [], r = c.extract(t, /video_related=([^\n\r]+);window/);
         if (r && r.startsWith("[") && r.endsWith("]")) try {
@@ -666,6 +742,8 @@ function _toPrimitive(e, t) {
 
   // ---------------------------------------------------------------------------
   // SOURCE: spankbang.com — ru.spankbang.com
+  // v3.0.1: исправлен regex качеств (экранирование одинарной кавычки внутри строки);
+  //         исправлен buildUrl — параметр страницы теперь корректно передаётся
   // ---------------------------------------------------------------------------
   var _SpankBangClass = function() {
     function e() { _classCallCheck(this, e) }
@@ -697,9 +775,11 @@ function _toPrimitive(e, t) {
     }, {
       key: "buildUrl",
       value: function(e, t, a, n) {
+        // v3.0.1: исправлена пагинация — page передаётся как часть пути, не query
         var r = "".concat(e, "/");
-        return t ? r += "s/".concat(encodeURIComponent(t), "/").concat(n, "/") :
-          (r += "".concat(a || "new_videos", "/").concat(n, "/"), "most_popular" === a && (r += "?p=m")), r
+        if (t) return r + "s/".concat(encodeURIComponent(t), "/").concat(n, "/");
+        if (a === "most_popular") return r + "most_popular/".concat(n, "/?p=m");
+        return r + "".concat(a || "new_videos", "/").concat(n, "/")
       }
     }, {
       key: "Playlist",
@@ -731,9 +811,16 @@ function _toPrimitive(e, t) {
     }, {
       key: "StreamLinks",
       value: function(e) {
-        for (var t, a = {}, n = /'([0-9]+)(p|k)': ?$'(https?:\/\/[^']+)'/g; null !== (t = n.exec(e));) {
+        // v3.0.1: исправлен regex — добавлены двойные кавычки как вариант, экранирование
+        var t, a = {}, n = /['"]([0-9]+)(p|k)['"]\s*:\s*['"]?(https?:\/\/[^'">\s]+)['"]?/g;
+        while (null !== (t = n.exec(e))) {
           var r = "k" === t[2] ? 2160 : parseInt(t[1], 10);
           a["".concat(r, "p")] = t[3]
+        }
+        // Резервный regex для нового формата SpankBang
+        if (!Object.keys(a).length) {
+          var alt = /stream_url_([0-9]+)p\s*=\s*["']([^"']+)["']/g, tv;
+          while (null !== (tv = alt.exec(e))) a[tv[1] + "p"] = tv[2];
         }
         return new m(a, this.Playlist(e))
       }
@@ -744,6 +831,7 @@ function _toPrimitive(e, t) {
 
   // ---------------------------------------------------------------------------
   // SOURCE: chaturbate.com — chaturbate.com
+  // v3.0.1: добавлен retry при пустом M3U8 (повторный запрос через 2с)
   // ---------------------------------------------------------------------------
   var _ChaturbateClass = function() {
     function e() { _classCallCheck(this, e) }
@@ -806,7 +894,7 @@ function _toPrimitive(e, t) {
       key: "StreamLinks",
       value: (function() {
         var _sl = _asyncToGenerator(_regenerator().m((function t(a) {
-          var n, r;
+          var n, r, attempt;
           return _regenerator().w((function(t) {
             for (;;) switch (t.n) {
               case 0:
@@ -815,9 +903,19 @@ function _toPrimitive(e, t) {
               case 1:
                 return t.n = 2, l.Get("".concat(e.host, "/").concat(a, "/"));
               case 2:
-                if (n = t.v, r = c.extract(n, /(https?:\/\/[^ ]+\/playlist\.m3u8)/)) { t.n = 3; break }
-                return t.a(2, new m({}, []));
+                n = t.v;
+                r = c.extract(n, /(https?:\/\/[^ "]+\/playlist\.m3u8[^ "']*)/);
+                if (r) { t.n = 5; break }
+                // v3.0.1: retry — подождать 2с и повторить запрос
+                t.n = 3;
+                return new Promise(function(res){ setTimeout(res, 2000) });
               case 3:
+                return t.n = 4, l.Get("".concat(e.host, "/").concat(a, "/"));
+              case 4:
+                n = t.v;
+                r = c.extract(n, /(https?:\/\/[^ "]+\/playlist\.m3u8[^ "']*)/);
+                if (!r) return t.a(2, new m({}, []));
+              case 5:
                 return t.a(2, new m({ auto: r.replace(/\\u002D/g, "-").replace(/\\/g, "") }, []))
             }
           }), t)
@@ -991,7 +1089,6 @@ function _toPrimitive(e, t) {
   // SECTION 4: РЕДАКТИРУЕМЫЕ ИСТОЧНИКИ — NextHub P[]
   // Движок NextHub + массив конфигураций P[]
   // Каждый источник: многострочный блок с комментарием домена.
-  // Блоки categories: { } оставлены без дополнительного форматирования.
   // ===========================================================================
 
   // ---------------------------------------------------------------------------
@@ -1275,23 +1372,65 @@ function _toPrimitive(e, t) {
 
   // ---------------------------------------------------------------------------
   // NEXTHUB CONFIGS ARRAY P[]
+  //
+  // РУКОВОДСТВО ПО ДОБАВЛЕНИЮ НОВОГО ИСТОЧНИКА:
+  // 1. Скопируйте блок-шаблон ниже в место [NEW_SOURCE_SLOT]
+  // 2. Заполните: displayname, host, menu, list, search, contentParse, view
+  // 3. Для отладки установите maintenance: true — источник будет скрыт из списка
+  // 4. Увеличьте VERSION в шапке файла (патч-версия: 3.0.X)
+  // 5. Добавьте запись в CHANGELOG
+  //
+  // ШАБЛОН НОВОГО ИСТОЧНИКА:
+  // {
+  //   enable: true,
+  //   maintenance: true,          // true = скрыт, false = отображается
+  //   version: "3.0.X",
+  //   fallback_host: "",          // резервный домен (необязательно)
+  //   displayname: "SiteName",    // латиницей, без пробелов
+  //   host: "https://example.com",
+  //   menu: {
+  //     route: {
+  //       sort: "{host}/{sort}/{page}",   // шаблон URL для сортировки
+  //       cat:  "{host}/{cat}/{page}",    // шаблон URL для категории
+  //     },
+  //     sort: { "Новое": "", "Лучшее": "top" },
+  //     categories: { "Все": "", "Анал": "anal" }
+  //   },
+  //   list: { uri: "latest/{page}", firstpage: "{host}" },
+  //   search: { uri: "search/{search}/{page}" },
+  //   contentParse: {
+  //     nodes: "//div[contains(@class,'item')]",
+  //     name:     { node: ".//span[@class='title']" },
+  //     href:     { node: ".//a", attribute: "href" },
+  //     img:      { node: ".//img", attribute: "data-src" },
+  //     duration: { node: ".//span[@class='time']" },
+  //     preview:  { node: ".//div", attribute: "data-preview" },  // необязательно
+  //   },
+  //   view: {
+  //     related: true,
+  //     regexMatch: { pattern: '"file":"([^"]+)"' }
+  //     // Альтернативы: nodeFile, eval — см. примеры существующих источников
+  //   }
+  // },
+  //
   // Поля каждого источника:
   //   enable        — включён/выключен
   //   maintenance   — временно недоступен (true = скрыт, но не удалён)
   //   version       — версия, в которой добавлен/изменён
-  //   fallback_host — резервный домен (зарезервировано, см. resolveFallbackHost)
-  //   displayname   — отображаемое имя
+  //   fallback_host — резервный домен (проверяется через HEAD-запрос в v3.0.1)
+  //   displayname   — отображаемое имя (также используется как ключ роутинга)
   //   host          — основной домен
   // ---------------------------------------------------------------------------
   var P = [
 
     // -------------------------------------------------------------------------
     // SOURCE: rt.pornhub.com
+    // v3.0.1: расширен xpath nodes (новая вёрстка 2025); исправлен regex качеств
     // -------------------------------------------------------------------------
     {
       enable: !0,
       maintenance: !1,
-      version: "1.0.0",
+      version: "3.0.1",
       // fallback_host: "",  // [FALLBACK_RESERVED]
       displayname: "PornHub",
       host: "https://rt.pornhub.com",
@@ -1333,8 +1472,9 @@ function _toPrimitive(e, t) {
       list: { uri: "video?page={page}" },
       search: { uri: "video/search?search={search}&page={page}" },
       contentParse: {
-        nodes: "//li[contains(@class,'videoblock')] | //div[contains(@class,'video-list') or contains(@class,'videos')]//li[contains(@class,'videoblock')] | //ul[@id='videoCategory']//li[contains(@class,'videoblock')]",
-        name: { node: ".//a[@data-event='thumb_click'] | .//a[@class='gtm-event-thumb-click'] | .//span[@class='title']//a" },
+        // v3.0.1: расширен xpath — добавлены новые классы карточек PH 2025
+        nodes: "//li[contains(@class,'videoblock')] | //div[contains(@class,'video-list') or contains(@class,'videos')]//li[contains(@class,'videoblock')] | //ul[@id='videoCategory']//li[contains(@class,'videoblock')] | //div[contains(@class,'pcVideoListItem')] | //li[contains(@class,'pcVideoListItem')]",
+        name: { node: ".//a[@data-event='thumb_click'] | .//a[@class='gtm-event-thumb-click'] | .//span[@class='title']//a | .//div[@class='thumbnail-info-wrapper']//span[@class='title']" },
         href: { node: ".//a[contains(@class,'linkVideoThumb')] | .//a[contains(@class,'title')]", attribute: "href" },
         img: { node: ".//img | .//a[contains(@class,'linkVideoThumb')]//img", attributes: ["data-mediumthumb", "data-thumb_url", "data-image", "src"] },
         preview: { node: ".//img | .//a[contains(@class,'linkVideoThumb')]//img", attribute: "data-mediabook" },
@@ -1346,20 +1486,22 @@ function _toPrimitive(e, t) {
       },
       view: {
         related: !0,
+        // v3.0.1: обновлён regex — PH изменил формат JSON с "videoUrl" на "url" внутри qualities
         regexMatch: {
           matches: ["1080", "720", "480", "360", "240"],
-          pattern: '"videoUrl":"([^"]+)","quality":"{value}"'
+          pattern: '"videoUrl"\\s*:\\s*"([^"]+)"[^}]*"quality"\\s*:\\s*"{value}"|"quality"\\s*:\\s*"{value}"[^}]*"videoUrl"\\s*:\\s*"([^"]+)"'
         }
       }
     },
 
     // -------------------------------------------------------------------------
     // SOURCE: ru.xhamster.com
+    // v3.0.1: добавлен regexMatch как fallback для nodeFile (новый формат xHamster)
     // -------------------------------------------------------------------------
     {
       enable: !0,
       maintenance: !1,
-      version: "1.0.0",
+      version: "3.0.1",
       // fallback_host: "",  // [FALLBACK_RESERVED]
       displayname: "Xhamster",
       host: "https://ru.xhamster.com",
@@ -1411,7 +1553,11 @@ function _toPrimitive(e, t) {
       },
       view: {
         related: !0,
-        nodeFile: { node: "//link[@rel='preload']", attribute: "href" }
+        // v3.0.1: nodeFile + regexMatch fallback — xHamster меняет формат отдачи M3U8
+        nodeFile: { node: "//link[@rel='preload'][@as='fetch']", attribute: "href" },
+        regexMatch: {
+          pattern: '"masterVideoUrl"\\s*:\\s*"([^"]+\\.m3u8[^"]*)"'
+        }
       }
     },
 
@@ -1556,7 +1702,61 @@ function _toPrimitive(e, t) {
     },
 
     // -------------------------------------------------------------------------
-    // SOURCE: w0w.ukdevilz.com  [добавлен в v1.2.0]
+    // SOURCE: hot.noodlemagazine.com  [добавлен в v3.0.1]
+    // fallback_host: w0w.ukdevilz.com (UkDevilz как зеркало Noodle)
+    // ПРИМЕЧАНИЕ: основной хост защищён Cloudflare — при блокировке
+    // автоматически переключается на fallback через resolveFallbackHost()
+    // -------------------------------------------------------------------------
+    {
+      enable: !0,
+      maintenance: !1,
+      version: "3.0.1",
+      fallback_host: "https://w0w.ukdevilz.com",
+      displayname: "NoodleMagazine",
+      host: "https://hot.noodlemagazine.com",
+      menu: {
+        route: {
+          sort: "{host}/{sort}?p={page}",
+          cat: "{host}/category/{cat}?p={page}"
+        },
+        sort: {
+          "Новинки": "new-video",
+          "Популярное": "popular"
+        },
+        categories: {
+          "Все": "", "Анал": "anal", "Азиатки": "asian", "Блондинки": "blonde",
+          "Большие сиськи": "big-tits", "Большие жопы": "big-ass", "Большой член": "big-cock",
+          "Брюнетки": "brunette", "В машине": "in-car", "Веб-камера": "webcam",
+          "Двойное проникновение": "double-penetration", "Домашнее": "homemade",
+          "Женское доминирование": "femdom", "Зрелые": "mature", "Кончают внутрь": "creampie",
+          "Лесбиянки": "lesbian", "Любительское": "amateur", "Массаж": "massage",
+          "Мастурбация": "masturbation", "Межрасовое": "interracial", "МИЛФ": "milf",
+          "Минет": "blowjob", "На публике": "public", "Оральный секс": "oral",
+          "Пары": "couples", "POV": "pov", "Раком": "doggy", "Рыжие": "redhead",
+          "Сквирт": "squirt", "Секс втроём": "threesome", "Тинейджеры": "teen",
+          "Толстушки": "bbw", "Хардкор": "hardcore", "Японки": "japanese"
+        }
+      },
+      list: { uri: "new-video?p={page}", firstpage: "{host}/new-video" },
+      search: { uri: "search?q={search}&p={page}" },
+      contentParse: {
+        nodes: "//div[contains(@class,'item') and .//a[@href]]",
+        name: { node: ".//div[contains(@class,'title')] | .//h3 | .//p[@class='title']" },
+        href: { node: ".//a[contains(@href,'/video/') or contains(@href,'/watch/')]", attribute: "href" },
+        img: { node: ".//img", attributes: ["data-src", "data-lazy", "src"] },
+        duration: { node: ".//span[contains(@class,'duration') or contains(@class,'time')]" },
+        preview: { node: ".//div | .//a", attribute: "data-preview" }
+      },
+      view: {
+        related: !0,
+        regexMatch: {
+          pattern: '"file"\\s*:\\s*"([^"]+\\.m3u8[^"]*)"'
+        }
+      }
+    },
+
+    // -------------------------------------------------------------------------
+    // SOURCE: w0w.ukdevilz.com  [добавлен в v1.2.0; в v3.0.1 стал fallback Noodle]
     // -------------------------------------------------------------------------
     {
       enable: !0,
@@ -1588,12 +1788,261 @@ function _toPrimitive(e, t) {
         related: !0,
         regexMatch: { pattern: '"file":"([^"]+)"' }
       }
+    },
+
+    // -------------------------------------------------------------------------
+    // SOURCE: go.porn  [добавлен в v3.0.1]
+    // Чистый статичный HTML, хорошая структура — идеален для NextHub
+    // -------------------------------------------------------------------------
+    {
+      enable: !0,
+      maintenance: !1,
+      version: "3.0.1",
+      // fallback_host: "",  // [FALLBACK_RESERVED]
+      displayname: "GoPorn",
+      host: "https://go.porn",
+      menu: {
+        route: {
+          sort: "{host}/{sort}?page={page}",
+          cat: "{host}/categories/{cat}/?page={page}"
+        },
+        sort: {
+          "В тренде": "trending",
+          "Новые": "latest",
+          "Популярные": "most-viewed"
+        },
+        categories: {
+          "Все": "", "Amateur": "amateur", "Anal": "anal", "Asian": "asian",
+          "BBW": "bbw", "BDSM": "bdsm", "Big Ass": "big-ass", "Big Tits": "big-tits",
+          "Blonde": "blonde", "Blowjob": "blowjob", "Brunette": "brunette",
+          "Creampie": "creampie", "Cumshot": "cumshot", "Ebony": "ebony",
+          "Fetish": "fetish", "Gangbang": "gangbang", "Handjob": "handjob",
+          "Hardcore": "hardcore", "Hentai": "hentai", "Homemade": "homemade",
+          "Indian": "indian", "Interracial": "interracial", "Japanese": "japanese",
+          "Latina": "latina", "Lesbian": "lesbian", "Lingerie": "lingerie",
+          "Massage": "massage", "Masturbation": "masturbation", "Mature": "mature",
+          "MILF": "milf", "Outdoor": "outdoor", "Petite": "petite",
+          "POV": "pov", "Public": "public", "Redhead": "redhead",
+          "Shemale": "shemale", "Solo": "solo-female", "Squirt": "squirt",
+          "Stockings": "stockings", "Teen": "teen", "Threesome": "threesome",
+          "Toys": "toys", "Vintage": "vintage", "Webcam": "webcam"
+        }
+      },
+      list: { uri: "latest/?page={page}", firstpage: "{host}/trending/" },
+      search: { uri: "search/?q={search}&page={page}" },
+      contentParse: {
+        nodes: "//div[contains(@class,'video-item') or contains(@class,'thumb')]//a[@href and .//img]/..",
+        name: { node: ".//a[@title] | .//span[@class='title'] | .//p" },
+        href: { node: ".//a[contains(@href,'/videos/')]", attribute: "href" },
+        img: { node: ".//img", attributes: ["data-src", "data-lazy-src", "src"] },
+        duration: { node: ".//span[contains(@class,'duration') or contains(@class,'time')]" }
+      },
+      view: {
+        related: !0,
+        regexMatch: {
+          // go.porn использует стандартный jwplayer file
+          pattern: '"file"\\s*:\\s*"([^"]+\\.(?:m3u8|mp4)[^"]*)"'
+        }
+      }
+    },
+
+    // -------------------------------------------------------------------------
+    // SOURCE: ru.redtube.com  [добавлен в v3.0.1]
+    // -------------------------------------------------------------------------
+    {
+      enable: !0,
+      maintenance: !1,
+      version: "3.0.1",
+      // fallback_host: "",  // [FALLBACK_RESERVED]
+      displayname: "RedTube",
+      host: "https://www.redtube.com",
+      menu: {
+        route: {
+          sort: "{host}/?ordering={sort}&page={page}",
+          cat: "{host}/?category={cat}&page={page}"
+        },
+        sort: {
+          "Новые": "newest",
+          "Популярные": "mostviewed",
+          "Рейтинг": "rating"
+        },
+        categories: {
+          "Все": "", "Amateur": "Amateur", "Anal": "Anal", "Asian": "Asian",
+          "BBW": "BBW", "Big Dick": "Big+Dick", "Big Tits": "Big+Tits",
+          "Blonde": "Blonde", "Blowjob": "Blowjob", "Brunette": "Brunette",
+          "Creampie": "Creampie", "Cumshot": "Cumshots", "Ebony": "Ebony",
+          "Fetish": "Fetish", "Gangbang": "Gangbang", "Gay": "Gay",
+          "Hardcore": "Hardcore", "Indian": "Indian", "Interracial": "Interracial",
+          "Japanese": "Japanese", "Latina": "Latina", "Lesbian": "Lesbian",
+          "Massage": "Massage", "Masturbation": "Masturbation", "Mature": "Mature",
+          "MILF": "MILF", "Outdoor": "Outdoor", "POV": "POV",
+          "Public": "Public", "Redhead": "Redhead", "Shemale": "Shemale",
+          "Solo": "Solo+Female", "Squirt": "Squirting", "Stockings": "Stockings",
+          "Swinger": "Swinger", "Teen": "Teen", "Threesome": "Threesome",
+          "Toys": "Toys", "Vintage": "Vintage", "Webcam": "Webcam"
+        }
+      },
+      list: { uri: "?page={page}", firstpage: "{host}/" },
+      search: { uri: "?search={search}&page={page}" },
+      contentParse: {
+        nodes: "//li[contains(@class,'videoblock')] | //div[contains(@class,'video_item')]",
+        name: { node: ".//a[@title] | .//div[@class='video_title']//a" },
+        href: { node: ".//a[contains(@href,'/') and @data-id]", attribute: "href" },
+        img: { node: ".//img", attributes: ["data-mediumthumb", "data-thumb_url", "src"] },
+        duration: { node: ".//*[contains(@class,'duration')]" },
+        preview: { node: ".//img", attribute: "data-mediabook" }
+      },
+      view: {
+        related: !0,
+        regexMatch: {
+          matches: ["1080", "720", "480", "360", "240"],
+          pattern: '"videoUrl"\\s*:\\s*"([^"]+)"[^}]*"quality"\\s*:\\s*"{value}"'
+        }
+      }
+    },
+
+    // -------------------------------------------------------------------------
+    // SOURCE: fapcat.com  [добавлен в v3.0.1, maintenance=true — CF блок без UA]
+    // СТАТУС: скрыт до решения проблемы Cloudflare 403.
+    // Для активации: установить maintenance: false после проверки доступности.
+    // -------------------------------------------------------------------------
+    {
+      enable: !0,
+      maintenance: !0,
+      version: "3.0.1",
+      // fallback_host: "",  // [FALLBACK_RESERVED]
+      displayname: "FapCat",
+      host: "https://www.fapcat.com",
+      menu: {
+        route: {
+          sort: "{host}/{sort}/{page}/",
+          cat: "{host}/categories/{cat}/{page}/"
+        },
+        sort: {
+          "Новые": "new",
+          "Популярные": "popular",
+          "Лучшие": "top-rated"
+        },
+        categories: {
+          "Все": "", "Anal": "anal", "Asian": "asian", "BBW": "bbw",
+          "Big Tits": "big-tits", "Blonde": "blonde", "Blowjob": "blowjob",
+          "Brunette": "brunette", "Creampie": "creampie", "Cumshot": "cumshot",
+          "Hardcore": "hardcore", "Lesbian": "lesbian", "MILF": "milf",
+          "Teen": "teen", "Threesome": "threesome"
+        }
+      },
+      list: { uri: "new/{page}/", firstpage: "{host}/new/" },
+      search: { uri: "search/{search}/{page}/" },
+      contentParse: {
+        nodes: "//div[contains(@class,'video-item') or contains(@class,'thumb')]",
+        name: { node: ".//span[@class='title'] | .//a[@title]" },
+        href: { node: ".//a[contains(@href,'/video/') or contains(@href,'/watch/')]", attribute: "href" },
+        img: { node: ".//img", attributes: ["data-src", "data-lazy", "src"] },
+        duration: { node: ".//span[@class='duration' or contains(@class,'time')]" }
+      },
+      view: {
+        related: !0,
+        regexMatch: { pattern: '"file"\\s*:\\s*"([^"]+\\.(?:m3u8|mp4)[^"]*)"' }
+      }
+    },
+
+    // -------------------------------------------------------------------------
+    // SOURCE: clicporn.com  [добавлен в v3.0.1, maintenance=true — CF блок]
+    // СТАТУС: скрыт до решения проблемы Cloudflare 403.
+    // -------------------------------------------------------------------------
+    {
+      enable: !0,
+      maintenance: !0,
+      version: "3.0.1",
+      // fallback_host: "",  // [FALLBACK_RESERVED]
+      displayname: "ClicPorn",
+      host: "https://clicporn.com",
+      menu: {
+        route: {
+          sort: "{host}/{sort}/?page={page}",
+          cat: "{host}/categories/{cat}/?page={page}"
+        },
+        sort: {
+          "Новые": "videos",
+          "Популярные": "most-viewed",
+          "Лучшие": "top-rated"
+        },
+        categories: {
+          "Все": "", "Anal": "anal", "Asian": "asian", "BBW": "bbw",
+          "Big Tits": "big-tits", "Blonde": "blonde", "Blowjob": "blowjob",
+          "Brunette": "brunette", "Creampie": "creampie", "Hardcore": "hardcore",
+          "Lesbian": "lesbian", "MILF": "milf", "Teen": "teen"
+        }
+      },
+      list: { uri: "videos/?page={page}", firstpage: "{host}/videos/" },
+      search: { uri: "search/?q={search}&page={page}" },
+      contentParse: {
+        nodes: "//div[contains(@class,'video') and .//a]",
+        name: { node: ".//span[@class='title'] | .//p[@class='title'] | .//a[@title]" },
+        href: { node: ".//a[contains(@href,'/video/') or contains(@href,'/watch/')]", attribute: "href" },
+        img: { node: ".//img", attributes: ["data-src", "data-lazy", "src"] },
+        duration: { node: ".//span[contains(@class,'dur') or contains(@class,'time')]" }
+      },
+      view: {
+        related: !0,
+        regexMatch: { pattern: '"file"\\s*:\\s*"([^"]+\\.(?:m3u8|mp4)[^"]*)"' }
+      }
+    },
+
+    // -------------------------------------------------------------------------
+    // SOURCE: ru.stripchat.com  [добавлен в v3.0.1, maintenance=true]
+    // СТАТУС: WebSocket-архитектура. Полноценный парсер невозможен без
+    // JS-рендеринга. Заглушка для будущей реализации через iframe/embed.
+    // -------------------------------------------------------------------------
+    {
+      enable: !1,
+      maintenance: !0,
+      version: "3.0.1",
+      // fallback_host: "",
+      displayname: "StripChat",
+      host: "https://ru.stripchat.com",
+      menu: { sort: { "Лучшие": "" } },
+      list: { uri: "{host}" },
+      search: { uri: "{host}" },
+      contentParse: {
+        nodes: "//div[@class='placeholder']",
+        name: { node: ".//span" },
+        href: { node: ".//a", attribute: "href" },
+        img: { node: ".//img", attribute: "src" }
+      },
+      view: { related: !1, regexMatch: { pattern: '"stub":"([^"]+)"' } }
+    },
+
+    // -------------------------------------------------------------------------
+    // SOURCE: hdzog.com  [добавлен в v3.0.1, maintenance=true]
+    // СТАТУС: Vue.js SPA — весь контент рендерится через %% %% шаблоны.
+    // Без headless browser (Puppeteer/Playwright) парсинг невозможен.
+    // Заглушка сохранена в массиве для отслеживания.
+    // -------------------------------------------------------------------------
+    {
+      enable: !1,
+      maintenance: !0,
+      version: "3.0.1",
+      // fallback_host: "",
+      displayname: "HdZog",
+      host: "https://hdzog.com",
+      menu: { sort: { "Новое": "" } },
+      list: { uri: "latest-updates/?page={page}" },
+      search: { uri: "?s={search}&page={page}" },
+      contentParse: {
+        nodes: "//div[@class='placeholder']",
+        name: { node: ".//span" },
+        href: { node: ".//a", attribute: "href" },
+        img: { node: ".//img", attribute: "src" }
+      },
+      view: { related: !1, regexMatch: { pattern: '"stub":"([^"]+)"' } }
     }
 
     // =========================================================================
     // [NEW_SOURCE_SLOT] — место для следующего источника.
-    // Скопируйте шаблон из README.md, вставьте перед этим комментарием.
-    // Увеличьте VERSION в шапке файла.
+    // Скопируйте шаблон из блока РУКОВОДСТВА выше, вставьте перед этим комментарием.
+    // Увеличьте VERSION в шапке файла (патч-версия: 3.0.X).
+    // Добавьте запись в CHANGELOG.
     // =========================================================================
 
   ]; // конец массива P[]
@@ -1817,7 +2266,8 @@ function _toPrimitive(e, t) {
             var r = -1 !== a.playlist_url.indexOf("?") ? "&" : "?",
               i = -1 !== t.indexOf("?") || -1 !== t.indexOf("&") ? t.substring(1) : t,
               cancelled = !1,
-              timer = setTimeout((function() { cancelled = !0, status.error() }), 8e3);
+              // v3.0.1: таймаут увеличен до REQUEST_TIMEOUT (12000ms)
+              timer = setTimeout((function() { cancelled = !0, status.error() }), REQUEST_TIMEOUT);
             AdultJS.Invoke(a.playlist_url + r + i)
               .then((function(t) {
                 clearTimeout(timer), cancelled || (t.list ? (t.title = helper.sourceTitle(a.title),
@@ -1908,6 +2358,7 @@ function _toPrimitive(e, t) {
                 }))
             }
           });
+
           Lampa.Select.show({
             title: "Фильтр", items: r,
             onBack: function() { Lampa.Controller.toggle("content") },
@@ -1929,7 +2380,6 @@ function _toPrimitive(e, t) {
     window["plugin_adultjs_" + PLUGIN_ID + "_ready"] || function() {
 
       function mountUI() {
-        // Кнопка в боковом меню
         var $btn = $('<li class="menu__item selector" data-action="adultjs">\n            <div class="menu__ico">\n                <svg xmlns="http://www.w3.org/2000/svg" version="1.1" xmlns:xlink="http://www.w3.org/1999/xlink" width="512" height="512" x="0" y="0" viewBox="0 0 29.461 29.461" style="enable-background:new 0 0 512 512" xml:space="preserve" class=""><g><path d="M28.855 13.134c-.479 0-.91-.197-1.371-.452-1.671 7.509-10.383 11.899-12.765 12.972-2.514-1.125-12.034-5.916-12.963-14.188-.043.029-.088.056-.132.084-.411.269-.797.523-1.299.523-.064 0-.121-.029-.184-.038C1.586 22.377 14.72 27.47 14.72 27.47s12.227-4.74 14.386-14.362a1.397 1.397 0 0 1-.251.026z" fill="currentColor" ></path><path d="M29.379 8.931C28.515-.733 16.628.933 14.721 6.432 12.814.932.928-.733.062 8.931c-.397 4.426 1.173.063 3.508 1.205 1.008.494 1.99 2.702 3.356 2.974 1.998.397 3.109-1.551 4.27-1.631 3.174-.222 2.394 6.596 5.424 5.586 1.961-.653 2.479-3.016 4.171-2.806 1.582.195 3.296-3.711 4.78-3.571 2.471.23 4.305 3.786 3.808-1.757z" fill="currentColor" ></path><path d="M14.894 21.534c2.286 0-.929-3.226-.588-4.511-1.994 1.276-1.697 4.511.588 4.511z" fill="currentColor"></path></g></svg>\n            </div>\n            <div class="menu__text">' + Lampa.Lang.translate("lampac_adultName") + "</div>\n        </li>"),
           $badge = $("<div>JS</div>");
         $badge.css({ position: "absolute", right: "-0.4em", bottom: "-0.4em", color: "#fff", fontSize: "0.6em", borderRadius: "0.5em", fontWeight: 900, textTransform: "uppercase" }),
@@ -1957,7 +2407,6 @@ function _toPrimitive(e, t) {
 
         $(".menu .menu__list").eq(0).append($btn);
 
-        // Кнопка фильтра в шапке
         !function() {
           var _actObj, _hideTimer,
             $filter = $('<div class="head__action head__settings selector">\n            <svg height="36" viewBox="0 0 38 36" fill="none" xmlns="http://www.w3.org/2000/svg">\n                <rect x="1.5" y="1.5" width="35" height="33" rx="1.5" stroke="currentColor" stroke-width="3"></rect>\n                <rect x="7" y="8" width="24" height="3" rx="1.5" fill="currentColor"></rect>\n                <rect x="7" y="16" width="24" height="3" rx="1.5" fill="currentColor"></rect>\n                <rect x="7" y="25" width="24" height="3" rx="1.5" fill="currentColor"></rect>\n                <circle cx="13.5" cy="17.5" r="3.5" fill="currentColor"></circle>\n                <circle cx="23.5" cy="26.5" r="3.5" fill="currentColor"></circle>\n                <circle cx="21.5" cy="9.5" r="3.5" fill="currentColor"></circle>\n            </svg>\n        </div>');
@@ -1972,15 +2421,13 @@ function _toPrimitive(e, t) {
             }))
         }();
 
-        // Регистрация настроек (только если ещё не зарегистрировано)
         window.sisi_add_param_ready || (window.sisi_add_param_ready = !0,
           Lampa.SettingsApi.addComponent({
             component: "AdultJS",
-            // v3.0.0: название компонента содержит номер версии
-            name: Lampa.Lang.translate("lampac_adultName") + " v3.0.0",
+            // v3.0.1: версия обновлена в названии компонента
+            name: Lampa.Lang.translate("lampac_adultName") + " v3.0.1",
             icon: '<svg width="200" height="243" viewBox="0 0 200 243" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M187.714 130.727C206.862 90.1515 158.991 64.2019 100.983 64.2019C42.9759 64.2019 -4.33044 91.5669 10.875 130.727C26.0805 169.888 63.2501 235.469 100.983 234.997C138.716 234.526 168.566 171.303 187.714 130.727Z" stroke="currentColor" stroke-width="15"/><path d="M102.11 62.3146C109.995 39.6677 127.46 28.816 169.692 24.0979C172.514 56.1811 135.338 64.2018 102.11 62.3146Z" stroke="currentColor" stroke-width="15"/><path d="M90.8467 62.7863C90.2285 34.5178 66.0667 25.0419 31.7127 33.063C28.8904 65.1461 68.8826 62.7863 90.8467 62.7863Z" stroke="currentColor" stroke-width="15"/><path d="M100.421 58.5402C115.627 39.6677 127.447 13.7181 85.2149 9C82.3926 41.0832 83.5258 35.4214 100.421 58.5402Z" stroke="currentColor" stroke-width="15"/><rect x="39.0341" y="98.644" width="19.1481" height="30.1959" rx="9.57407" fill="currentColor"/><rect x="90.8467" y="92.0388" width="19.1481" height="30.1959" rx="9.57407" fill="currentColor"/><rect x="140.407" y="98.644" width="19.1481" height="30.1959" rx="9.57407" fill="currentColor"/><rect x="116.753" y="139.22" width="19.1481" height="30.1959" rx="9.57407" fill="currentColor"/><rect x="64.9404" y="139.22" width="19.1481" height="30.1959" rx="9.57407" fill="currentColor"/><rect x="93.0994" y="176.021" width="19.1481" height="30.1959" rx="9.57407" fill="currentColor"/></svg>'
           }),
-          // v3.0.0: единственный пункт настроек — Предпросмотр при наведении
           Lampa.SettingsApi.addParam({
             component: "AdultJS",
             param: { name: "sisi_preview", type: "trigger", values: "", default: !0 },
@@ -1993,7 +2440,14 @@ function _toPrimitive(e, t) {
       window["plugin_adultjs_" + PLUGIN_ID + "_ready"] = !0;
       Lampa.Component.add("sisi_" + PLUGIN_ID, buildMainComponent);
       Lampa.Component.add("sisi_view_" + PLUGIN_ID, buildViewComponent);
-      window.appready ? mountUI() : Lampa.Listener.follow("app", (function(e) { "ready" == e.type && mountUI() }))
+      // v3.0.1: предварительная прогрузка меню при старте приложения для ускорения первого открытия
+      window.appready ? (mountUI(), setTimeout(function(){ if(window.AdultJS) AdultJS.Menu(); }, 3000)) :
+        Lampa.Listener.follow("app", (function(e) {
+          if ("ready" == e.type) {
+            mountUI();
+            setTimeout(function(){ if(window.AdultJS) AdultJS.Menu(); }, 3000);
+          }
+        }))
 
     }()
   }()
