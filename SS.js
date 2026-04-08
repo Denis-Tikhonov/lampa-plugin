@@ -1,9 +1,11 @@
 (function () {
     'use strict';
 
-    var PLUGIN_VERSION = '1.2.0';
+     var PLUGIN_VERSION = '1.2.0';
     var PLUGIN_ID = 'adult_plugin';
-    var MENU_URL = 'https://github.com/Denis-Tikhonov/lampa-plugin/raw/refs/heads/main/menu.json';
+    // ✅ ИСПРАВЛЕНО: Прямая ссылка на menu.json (raw GitHub)
+    var MENU_URL = 'https://raw.githubusercontent.com/Denis-Tikhonov/lampa-plugin/refs/heads/main/menu.json';
+    var PARSERS_URL = 'https://raw.githubusercontent.com/Denis-Tikhonov/lampa-plugin/refs/heads/main/';
 
     // =============================================================
     // [1] СИСТЕМА ЛОГИРОВАНИЯ
@@ -200,6 +202,101 @@
             param: { name: 'adult_debug_mode', type: 'trigger', default: false },
             field: { name: 'Режим отладки', description: 'Детальные логи в консоли' }
         });
+    }
+
+    // ✅ ИСПРАВЛЕНО: Новая функция инъекции парсеров
+    var ParserLoader = {
+        loaded: {},
+        load: function(parserName, callback) {
+            if (this.loaded[parserName]) {
+                callback();
+                return;
+            }
+
+            var script = document.createElement('script');
+            script.src = PARSERS_URL + parserName + '.js';
+            script.onload = function() {
+                ParserLoader.loaded[parserName] = true;
+                callback();
+            };
+            script.onerror = function() {
+                Logger.error('ParserLoader', 'Failed to load: ' + parserName);
+            };
+            document.head.appendChild(script);
+        }
+    };
+
+    function startPlugin() {
+        Lampa.Component.add('adult', function(object) {
+            var comp = this;
+            this.create = function() {
+                this.activity.loader(true);
+                this.loadMenu();
+                return this.render();
+            };
+
+            this.loadMenu = function() {
+                var cachedMenu = SmartCache.get('main_menu');
+                if (cachedMenu) return this.showMenu(cachedMenu);
+
+                var net = new Lampa.Reguest();
+                net.silent(MENU_URL, function(data) {
+                    if (data && data.channels) {
+                        SmartCache.set('main_menu', data.channels, 86400000);
+                        comp.showMenu(data.channels);
+                    }
+                }, function() {
+                    Lampa.Noty.show('Ошибка загрузки меню');
+                }, false, { dataType: 'json' });
+            };
+
+            this.showMenu = function(channels) {
+                this.activity.loader(false);
+                var items = channels.map(function(ch) {
+                    return {
+                        title: ch.title,
+                        description: ch.playlist_url,
+                        image: ch.icon,
+                        parser: ch.parser
+                    };
+                });
+
+                this.display(items);
+            };
+
+            this.display = function(items) {
+                var scroll = new Lampa.Scroll({mask: true, over: true});
+                items.forEach(function(item) {
+                    var card = Lampa.Template.get('button', {title: item.title});
+                    card.on('hover:enter', function() {
+                        comp.openChannel(item);
+                    });
+                    scroll.append(card);
+                });
+                comp.append(scroll.render());
+            };
+
+            this.openChannel = function(item) {
+                var parser = window.AdultPlugin.parsers[item.parser];
+                if (!parser) {
+                    // ✅ ИСПРАВЛЕНО: Используем новый загрузчик
+                    ParserLoader.load(item.parser, function() {
+                        comp.openChannel(item);
+                    });
+                    return;
+                }
+                
+                Lampa.Activity.push({
+                    url: item.description,
+                    title: item.title,
+                    component: 'adult_view',
+                    page: 1,
+                    parser: item.parser
+                });
+            };
+        });
+
+        setupSettings();
     }
 
     // Запуск
