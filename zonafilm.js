@@ -1,143 +1,96 @@
-(function () {
-  'use strict';
+export default {
+  async fetch(request) {
+    const url = new URL(request.url);
 
-  var Defined = {
-    use_api: 'lampac',
-    // базовый URL на GitHub
-    github_raw_base: 'https://raw.githubusercontent.com/Denis-Tikhonov/lampa-plugin/main',
-    // Путь к json файлам
-    json_host: 'https://raw.githubusercontent.com/Denis-Tikhonov/lampa-plugin/main/ss',
-    // Можно использовать pages: https://denis-tikhonov.github.io/lampa-plugin/
-    // Для закладок, если есть:
-    bookmarks_url: 'https://raw.githubusercontent.com/Denis-Tikhonov/lampa-plugin/main/bookmarks.json',
-    // Для phub json
-    phub_url: 'https://raw.githubusercontent.com/Denis-Tikhonov/lampa-plugin/main/phub.json',
-  };
-
-  var network = new Lampa.Reguest();
-
-  // --------- Функции для получения json с github ---------
-  function getJsonFromGithub(path, success, error) {
-    var url = Defined.json_host + '/' + path;
-    network.silent(
-      url,
-      function (json) {
-        if (json) success(json);
-        else error();
-      },
-      error
-    );
-  }
-
-  // --------- Работа с закладками в localStorage ---------
-  function getBookmarks(success, error) {
-    try {
-      const bookmarks = JSON.parse(localStorage.getItem('bookmarks') || '[]');
-      success(bookmarks);
-    } catch (e) {
-      error();
-    }
-  }
-
-  function saveBookmarks(bookmarks) {
-    localStorage.setItem('bookmarks', JSON.stringify(bookmarks));
-  }
-
-  // --------- Получение json для phub ---------
-  function getPhub(success, error) {
-    getJsonFromGithub('phub.json', success, error);
-  }
-
-  // --------- API подключение ---------
-  function Api() {
-    var self = this;
-
-    // Главное меню — например, из github
-    self.menu = function (success, error) {
-      getJsonFromGithub('menu.json', success, error);
-    };
-
-    // Представление
-    self.view = function (params, success, error) {
-      getJsonFromGithub('view.json', success, error);
-    };
-
-    // Работа с закладками
-    self.bookmark = function (element, add, call) {
-      getBookmarks(function (bookmarks) {
-        if (add) {
-          // добавляем
-          bookmarks.push(element);
-        } else {
-          // удаляем
-          var index = bookmarks.findIndex(b => b.uid === element.uid);
-          if (index !== -1) bookmarks.splice(index, 1);
+    // ===================================================
+    // CORS
+    // ===================================================
+    if (request.method === "OPTIONS") {
+      return new Response(null, {
+        headers: {
+          "Access-Control-Allow-Origin": "*",
+          "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+          "Access-Control-Allow-Headers": "*",
         }
-        saveBookmarks(bookmarks);
-        call(true);
-      }, function () {
-        call(false);
       });
-    };
-
-    // Для получения json, например, для плейлистов
-    self.playlist = function (add_url_query, oncomplite, error) {
-      getJsonFromGithub('playlist.json', oncomplite, error);
-    };
-
-    // Получение json для /phub
-    self.phub = function (success, error) {
-      getPhub(success, error);
-    };
-
-    // Очистка кеша (если нужно)
-    self.clear = function () {
-      // ничего не делаем
-    };
-
-    // Пример: получение аккаунта (заглушка)
-    self.account = function (u) {
-      return u;
-    };
-  }
-
-  var Api = new Api();
-
-  // --------- Инициализация плагина ---------
-  function startPlugin() {
-    window['plugin_sisi_' + Defined.use_api + '_ready'] = true;
-
-    var unic_id = Lampa.Storage.get('sisi_unic_id', '');
-    if (!unic_id) {
-      unic_id = Lampa.Utils.uid(8).toLowerCase();
-      Lampa.Storage.set('sisi_unic_id', unic_id);
     }
 
-    // Регистрация компонентов
-    Lampa.Component.add('sisi_' + Defined.use_api, Sisi);
-    Lampa.Component.add('sisi_view_' + Defined.use_api, View);
-    // addSourceSearch(); // если нужно
-    Lampa.Search.addSource(Search);
+    // ===================================================
+    // ПАРАМЕТРЫ ЗАПРОСА
+    // ===================================================
+    const query = url.searchParams.get("Query") || url.searchParams.get("query");
+    if (!query) {
+      return jsonResponse({ Results: [], Indexers: [] });
+    }
 
-    // Инициализация
-    function init() {
-      // Можно загрузить закладки из localStorage по умолчанию
-      // или сделать начальную инициализацию
-      if (!localStorage.getItem('bookmarks')) {
-        localStorage.setItem('bookmarks', JSON.stringify([]));
+    // ===================================================
+    // ФИЛЬТРЫ И КЛЮЧЕВЫЕ СЛОВА
+    // ===================================================
+    const videoKeywords = /\b(mkv|mp4|avi|mov|wmv|ts|m2ts|remux|bluray|blu-ray|bdrip|webrip|webdl|web-dl|hdtv|hdrip|dvdrip|xvid|x264|x265|hevc|h264|h265|1080p|720p|2160p|4k|uhd|av1)\b/i;
+
+    // ===================================================
+    // ПАРАЛЛЕЛЬНЫЕ ЗАПРОСЫ
+    // ===================================================
+    const RUTOR_CATEGORIES = [1, 2, 4, 5, 10];
+    const encQuery = encodeURIComponent(query);
+
+    try {
+      const promises = [
+        // Запросы к Rutor по категориям
+        ...RUTOR_CATEGORIES.map(cat => 
+          fetch(`http://rutor.info/search/0/${cat}/300/0/${encQuery}`).then(r => r.text()).catch(() => "")
+        ),
+        // Запрос к Kinozal
+        fetch(`https://kinozal.tv/browse.php?s=${encQuery}`).then(r => r.text()).catch(() => "")
+      ];
+
+      const results = await Promise.all(promises);
+      const combinedResults = [];
+
+      // Обработка Rutor (упрощенный парсинг строк таблицы)
+      results.slice(0, RUTOR_CATEGORIES.length).forEach(html => {
+        const matches = html.matchAll(/<tr><td>.*?<\/td><td.*?><a href="\/torrent\/(\d+).*?">(.*?)<\/a>.*?<\/td><\/tr>/g);
+        for (const m of matches) {
+          if (videoKeywords.test(m[2])) {
+            combinedResults.push({
+              Title: m[2],
+              Guid: `http://rutor.info/torrent/${m[1]}`,
+              Indexer: "Rutor"
+            });
+          }
+        }
+      });
+
+      // Обработка Kinozal
+      const kinozalHtml = results[results.length - 1];
+      const kzMatches = kinozalHtml.matchAll(/<a href="\/details\.php\?id=(\d+)" class="r\d+">(.*?)<\/a>/g);
+      for (const m of kzMatches) {
+        if (videoKeywords.test(m[2])) {
+          combinedResults.push({
+            Title: m[2],
+            Guid: `https://kinozal.tv/details.php?id=${m[1]}`,
+            Indexer: "Kinozal"
+          });
+        }
       }
-    }
 
-    if (window.appready) init();
-    else {
-      Lampa.Listener.follow('app', function (e) {
-        if (e.type == 'ready') init();
+      return jsonResponse({
+        Results: combinedResults,
+        Indexers: ["Rutor", "Kinozal"]
       });
+
+    } catch (e) {
+      return jsonResponse({ Error: e.message, Results: [] }, 500);
     }
   }
+};
 
-  // Запуск
-  if (!window['plugin_sisi_' + Defined.use_api + '_ready']) {
-    startPlugin();
-  }
-})();
+function jsonResponse(data, status = 200) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: {
+      "Content-Type": "application/json; charset=utf-8",
+      "Access-Control-Allow-Origin": "*"
+    }
+  });
+}
