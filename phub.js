@@ -1,114 +1,125 @@
 (function () {
     'use strict';
 
-    var CONFIG = {
-        base_url: 'https://rt.pornhub.com',
-        sel: {
-            item: '.pcVideoListItem',
-            title: '.title a',
-            thumb: 'img',
-            duration: '.duration'
-        }
-    };
+    console.log('[phub] Parser loading...');
 
     var PhubParser = {
-        // Главный метод: список видео
         view: function(params, success, error) {
-            var url = params.url + (params.url.indexOf('?') > -1 ? '&' : '?') + 'page=' + (params.page || 1);
+            console.log('[phub] view() called');
             
-            // Используем глобальный Http утилиту из AdultJS
-            window.AdultPlugin.Http.fetch(url, function(html) {
-                var items = PhubParser.parsePage(html);
-                if (items.length > 0) {
+            var url = params.url;
+            if (url.indexOf('?') > -1) {
+                url += '&page=' + (params.page || 1);
+            } else {
+                url += '?page=' + (params.page || 1);
+            }
+            
+            var net = new Lampa.Reguest();
+            net.silent(url, function(html) {
+                try {
+                    var items = PhubParser.parse(html);
                     success({
                         results: items,
-                        total_pages: 100, // Условно
+                        total_pages: 100,
                         page: params.page || 1
                     });
-                } else {
-                    error('Ничего не найдено');
+                } catch(e) {
+                    error('Parse error: ' + e.message);
                 }
-            }, error);
+            }, function(err) {
+                error('Network error');
+            }, false, { dataType: 'text', timeout: 15000 });
         },
 
-        // Гибридный парсинг (Regex + DOM)
-        parsePage: function(html) {
-            var results = [];
+        parse: function(html) {
+            var items = [];
             
-            // 1. Пытаемся быстрым Regex (для слабых ТВ)
-            var regex = /<li[^>]+class="[^"]*pcVideoListItem[\s\S]*?<\/li>/g;
+            // Быстрый парсинг через регулярные выражения
+            var itemRegex = /<li[^>]*class="[^"]*pcVideoListItem[^"]*"[^>]*>([\s\S]*?)<\/li>/gi;
             var match;
-            
-            while ((match = regex.exec(html)) !== null) {
-                var li = match[0];
+
+            while ((match = itemRegex.exec(html)) !== null) {
                 try {
-                    var title = li.match(/title="([^"]+)"/)[1];
-                    var href = li.match(/href="(\/view_video\.php\?viewkey=[^"]+)"/)[1];
-                    var img = li.match(/data-mediumthumb="([^"]+)"/);
+                    var itemHtml = match[1];
                     
-                    results.push({
-                        name: title,
-                        video: CONFIG.base_url + href,
-                        picture: img ? img[1] : '',
+                    // Получаем заголовок
+                    var titleMatch = itemHtml.match(/title="([^"]+)"/i);
+                    if (!titleMatch) continue;
+                    
+                    // Получаем ссылку
+                    var hrefMatch = itemHtml.match(/href="([^"]+)"/i);
+                    if (!hrefMatch) continue;
+                    
+                    // Получаем изображение
+                    var imgMatch = itemHtml.match(/data-mediumthumb="([^"]+)"/i) || 
+                                   itemHtml.match(/src="([^"]+\.jpg)"/i);
+                    
+                    items.push({
+                        name: titleMatch[1].trim(),
+                        video: hrefMatch[1].indexOf('http') === 0 ? hrefMatch[1] : 'https://rt.pornhub.com' + hrefMatch[1],
+                        picture: imgMatch ? imgMatch[1] : '',
                         source: 'PornHub'
                     });
-                } catch (e) {}
+                } catch(e) {
+                    console.log('[phub] Item parse error: ' + e.message);
+                }
             }
 
-            // 2. Если Regex не сработал, используем DOMParser
-            if (results.length === 0) {
-                var doc = new DOMParser().parseFromString(html, 'text/html');
-                var nodes = doc.querySelectorAll(CONFIG.sel.item);
-                nodes.forEach(function(node) {
-                    var a = node.querySelector(CONFIG.sel.title);
-                    var img = node.querySelector(CONFIG.sel.thumb);
-                    if (a) {
-                        results.push({
-                            name: a.textContent.trim(),
-                            video: CONFIG.base_url + a.getAttribute('href'),
-                            picture: img ? (img.getAttribute('data-mediumthumb') || img.src) : '',
-                            source: 'PornHub'
-                        });
-                    }
-                });
-            }
-
-            return results;
+            console.log('[phub] Parsed ' + items.length + ' items');
+            return items;
         },
 
-        // Поиск
         search: function(params, success, error) {
-            params.url = CONFIG.base_url + '/video/search?search=' + encodeURIComponent(params.query);
+            console.log('[phub] search() called');
+            params.url = 'https://rt.pornhub.com/video/search?search=' + encodeURIComponent(params.query);
             this.view(params, success, error);
         },
 
-        // Получение прямой ссылки (Video Resolver)
         video: function(params, success, error) {
-            window.AdultPlugin.Http.fetch(params.url, function(html) {
-                // Ищем flashvars или медиа-объекты в скриптах
-                var videoMatch = html.match(/"videoUrl":"([^"]+)"/);
-                if (videoMatch) {
-                    var url = videoMatch[1].replace(/\\/g, '');
-                    success({ path: url });
-                } else {
-                    // Fallback для скриптов медиа-определений
-                    var mediaMatch = html.match(/mediaDefinitions":(\[.*?\])/);
-                    if (mediaMatch) {
-                        try {
-                            var media = JSON.parse(mediaMatch[1]);
-                            var best = media.filter(m => m.videoUrl).sort((a,b) => b.quality - a.quality)[0];
-                            success({ path: best.videoUrl });
-                        } catch(e) { error('Link parse error'); }
-                    } else {
-                        error('Стрипинг ссылки не удался. Возможно, нужна авторизация или прокси.');
+            console.log('[phub] video() called');
+            
+            var net = new Lampa.Reguest();
+            net.silent(params.url, function(html) {
+                try {
+                    // Попытка 1: videoUrl
+                    var videoMatch = html.match(/"videoUrl":"([^"]+)"/);
+                    if (videoMatch) {
+                        var url = videoMatch[1].replace(/\\/g, '');
+                        success({ path: url });
+                        return;
                     }
+
+                    // Попытка 2: mediaDefinitions
+                    var mediaMatch = html.match(/mediaDefinitions":\s*(\[[\s\S]*?\])/);
+                    if (mediaMatch) {
+                        var media = JSON.parse(mediaMatch[1]);
+                        var best = media
+                            .filter(function(m) { return m.videoUrl; })
+                            .sort(function(a, b) { return (b.quality || 0) - (a.quality || 0); })[0];
+                        
+                        if (best && best.videoUrl) {
+                            success({ path: best.videoUrl });
+                            return;
+                        }
+                    }
+
+                    error('Video URL not found');
+                } catch(e) {
+                    console.error('[phub] video() error: ' + e.message);
+                    error('Parse error: ' + e.message);
                 }
-            }, error);
+            }, function(err) {
+                error('Network error');
+            }, false, { dataType: 'text', timeout: 20000 });
         }
     };
 
-    // Регистрация в глобальном реестре
-    if (window.AdultPlugin && window.AdultPlugin.registerParser) {
+    // Регистрация парсера
+    if (window.AdultPlugin) {
         window.AdultPlugin.registerParser('phub', PhubParser);
+        console.log('[phub] ✅ Registered');
+    } else {
+        console.error('[phub] ❌ AdultPlugin not found');
     }
+
 })();
