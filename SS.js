@@ -3,7 +3,7 @@
 
     var PLUGIN_VERSION = '1.2.0';
     var PLUGIN_ID = 'adult_plugin';
-    var MENU_URL = 'https://raw.githubusercontent.com/yumata/lampa-adult/main/menu.json';
+    var MENU_URL = 'https://github.com/Denis-Tikhonov/lampa-plugin/raw/refs/heads/main/menu.json';
 
     // =============================================================
     // [1] СИСТЕМА ЛОГИРОВАНИЯ
