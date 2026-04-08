@@ -1,22 +1,10 @@
 {
   "channels": [
     {
-      "title": "Закладки",
-      "playlist_url": "local://bookmarks",
-      "parser": "bookmarks",
-      "icon": "https://via.placeholder.com/300x300?text=Bookmarks"
-    },
-    {
       "title": "PornHub",
       "playlist_url": "https://rt.pornhub.com/",
       "parser": "phub",
-      "icon": "https://via.placeholder.com/300x300?text=PornHub"
-    },
-    {
-      "title": "XVideos",
-      "playlist_url": "https://www.xvideos.com/",
-      "parser": "xvideos",
-      "icon": "https://via.placeholder.com/300x300?text=XVideos"
+      "icon": "https://via.placeholder.com/300?text=PornHub"
     }
   ]
 }
