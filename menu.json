@@ -2,23 +2,21 @@
   "channels": [
     {
       "title": "Закладки",
-      "playlist_url": "local://bookmarks"
+      "playlist_url": "local://bookmarks",
+      "parser": "bookmarks",
+      "icon": "https://via.placeholder.com/300x300?text=Bookmarks"
     },
     {
-      "title": "Phub.net",
-      "playlist_url": "phub"
-    },
-     {
-      "title": "Bongacams",
-      "playlist_url": "https://denis-tikhonov.github.io/lampa-plugin/bcms"
+      "title": "PornHub",
+      "playlist_url": "https://rt.pornhub.com/",
+      "parser": "phub",
+      "icon": "https://via.placeholder.com/300x300?text=PornHub"
     },
     {
-      "title": "Lenkino",
-      "playlist_url": "https://denis-tikhonov.github.io/lampa-plugin/lkno"
-    },
-      {
-      "title": "xVideos",
-      "playlist_url": "https://denis-tikhonov.github.io/lampa-plugin/xds"
+      "title": "XVideos",
+      "playlist_url": "https://www.xvideos.com/",
+      "parser": "xvideos",
+      "icon": "https://via.placeholder.com/300x300?text=XVideos"
     }
   ]
 }
