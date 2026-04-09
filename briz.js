@@ -1,583 +1,419 @@
 /**
- * Парсер для pornobriz.com
- * Совместим с Lampa на Android TV
- * Версия: 2.0.0
+ * Pornobriz.js - Парсер для AdultJS плагина Lampa
+ * Совместим с AdultJS v1.2.0+
+ * Поддержка Android TV 5.0+
  */
 
-(function() {
-  'use strict';
-
-  // Проверка доступности API
-  if (typeof Lampa === 'undefined' && typeof api === 'undefined') {
-    console.error('[Pornobriz] Lampa API not available');
-    return;
-  }
-
-  const API = window.Lampa || window.api || {};
-  const TIMEOUT = 10000;
-  const BASE_URL = 'https://pornobriz.com';
-
-  // ============================================
-  // ОСНОВНОЙ КЛАСС ПАРСЕРА
-  // ============================================
-  
-  const PornoBrizParser = {
-    
-    name: 'pornobriz',
-    title: 'Pornobriz',
-    icon: 'https://pornobriz.com/img/logo.png',
-    baseUrl: BASE_URL,
-    version: '2.0.0',
+(function () {
+    'use strict';
 
     // ============================================
-    // КАТЕГОРИИ
+    // ОБЪЕКТ ПАРСЕРА
     // ============================================
     
-    categories: [
-      { id: '0', title: 'Главная', url: '/' },
-      { id: '1', title: 'Рейтинговое', url: '/top/' },
-      { id: '2', title: 'Азиатки', url: '/asian/' },
-      { id: '3', title: 'Анальный секс', url: '/anal/' },
-      { id: '4', title: 'БДСМ', url: '/bdsm/' },
-      { id: '5', title: 'Блондинки', url: '/blonde/' },
-      { id: '6', title: 'Большая жопа', url: '/big_ass/' },
-      { id: '7', title: 'Большие сиськи', url: '/big_tits/' },
-      { id: '8', title: 'Большой член', url: '/big_dick/' },
-      { id: '9', title: 'Бритая киска', url: '/shaved/' },
-      { id: '10', title: 'Брюнетки', url: '/brunette/' },
-      { id: '11', title: 'В одежде', url: '/clothes/' },
-      { id: '12', title: 'Волосатые киски', url: '/hairy/' },
-      { id: '13', title: 'Глотают сперму', url: '/swallow/' },
-      { id: '14', title: 'Глубокая глотка', url: '/deepthroat/' },
-      { id: '15', title: 'Групповой секс', url: '/group/' },
-      { id: '16', title: 'Двойное проникновение', url: '/double_penetration/' },
-      { id: '17', title: 'Длинноволосые девушки', url: '/long_hair/' },
-      { id: '18', title: 'Дрочат', url: '/wanking/' },
-      { id: '19', title: 'Жесткий секс', url: '/hardcore/' },
-      { id: '20', title: 'ЖМЖ порно', url: '/ffm/' },
-      { id: '21', title: 'Игрушки', url: '/toys/' },
-      { id: '22', title: 'Казашки', url: '/kazakh/' },
-      { id: '23', title: 'Камшот', url: '/cumshot/' },
-      { id: '24', title: 'Кончают в рот', url: '/cum_in_mouth/' },
-      { id: '25', title: 'Красивая задница', url: '/perfect_ass/' },
-      { id: '26', title: 'Красивое белье', url: '/lingerie/' },
-      { id: '27', title: 'Красивые девушки', url: '/beautiful/' },
-      { id: '28', title: 'Красивые сиськи', url: '/beautiful_tits/' },
-      { id: '29', title: 'Крупным планом', url: '/close_up/' },
-      { id: '30', title: 'Кунилингус', url: '/pussy_licking/' },
-      { id: '31', title: 'Лесбиянки', url: '/lesbian/' },
-      { id: '32', title: 'Любительское порно', url: '/amateur/' },
-      { id: '33', title: 'Маленькие девушки', url: '/petite/' },
-      { id: '34', title: 'Маленькие сиськи', url: '/small_tits/' },
-      { id: '35', title: 'Мамочки', url: '/milf/' },
-      { id: '36', title: 'Мастурбация', url: '/masturbation/' },
-      { id: '37', title: 'Межрасовое', url: '/interracial/' },
-      { id: '38', title: 'МЖМ порно', url: '/mfm/' },
-      { id: '39', title: 'Милашки', url: '/cute/' },
-      { id: '40', title: 'Минет', url: '/blowjob/' },
-      { id: '41', title: 'Молодые', url: '/seks-molodye/' },
-      { id: '42', title: 'На природе', url: '/outdoor/' },
-      { id: '43', title: 'На публике', url: '/public/' },
-      { id: '44', title: 'Наездницы', url: '/riding/' },
-      { id: '45', title: 'Негритянки', url: '/ebony/' },
-      { id: '46', title: 'Оргазм', url: '/orgasm/' },
-      { id: '47', title: 'От первого лица', url: '/pov/' },
-      { id: '48', title: 'Писают', url: '/peeing/' },
-      { id: '49', title: 'Поцелуи', url: '/kissing/' },
-      { id: '50', title: 'Рвотные позывы', url: '/gagging/' },
-      { id: '51', title: 'Реальный секс', url: '/reality/' }
-    ],
+    var PornoBrizParser = {
+        
+        // === ОСНОВНАЯ ИНФОРМАЦИЯ ===
+        name: 'pornobriz',
+        title: 'Pornobriz',
+        description: 'Парсер для pornobriz.com',
+        icon: 'https://pornobriz.com/favicon.ico',
+        author: 'Your Name',
+        version: '1.0.0',
+        
+        // === КОНФИГУРАЦИЯ ===
+        baseUrl: 'https://pornobriz.com',
+        timeout: 15000,
+        
+        // === МЕНЮ КАТЕГОРИЙ ===
+        categories: [
+            { title: 'Главная',              url: 'https://pornobriz.com/' },
+            { title: 'Рейтинговое',         url: 'https://pornobriz.com/top/' },
+            { title: 'Азиатки',             url: 'https://pornobriz.com/asian/' },
+            { title: 'Анальный секс',       url: 'https://pornobriz.com/anal/' },
+            { title: 'БДСМ',                url: 'https://pornobriz.com/bdsm/' },
+            { title: 'Блондинки',           url: 'https://pornobriz.com/blonde/' },
+            { title: 'Большая жопа',        url: 'https://pornobriz.com/big_ass/' },
+            { title: 'Большие сиськи',      url: 'https://pornobriz.com/big_tits/' },
+            { title: 'Бритая киска',        url: 'https://pornobriz.com/shaved/' },
+            { title: 'Брюнетки',            url: 'https://pornobriz.com/brunette/' },
+            { title: 'Глотают сперму',      url: 'https://pornobriz.com/swallow/' },
+            { title: 'Глубокая глотка',     url: 'https://pornobriz.com/deepthroat/' },
+            { title: 'Групповой секс',      url: 'https://pornobriz.com/group/' },
+            { title: 'Жесткий секс',        url: 'https://pornobriz.com/hardcore/' },
+            { title: 'Лесбиянки',           url: 'https://pornobriz.com/lesbian/' },
+            { title: 'Любительское',        url: 'https://pornobriz.com/amateur/' },
+            { title: 'Милфы',               url: 'https://pornobriz.com/milf/' },
+            { title: 'Минет',               url: 'https://pornobriz.com/blowjob/' },
+            { title: 'Молодые',             url: 'https://pornobriz.com/seks-molodye/' },
+            { title: 'На публике',          url: 'https://pornobriz.com/public/' },
+            { title: 'От первого лица',     url: 'https://pornobriz.com/pov/' }
+        ],
 
-    // ============================================
-    // ИНИЦИАЛИЗАЦИЯ
-    // ============================================
-
-    init: function() {
-      console.log('[Pornobriz] Parser initialized v' + this.version);
-      
-      try {
-        // Регистрируем парсер в зависимости от версии Lampa
-        if (typeof Lampa !== 'undefined' && Lampa.Plugins) {
-          Lampa.Plugins.register(this);
-        } else if (typeof api !== 'undefined' && api.plugins) {
-          api.plugins.register(this);
-        }
-      } catch (e) {
-        console.error('[Pornobriz] Init error:', e);
-      }
-    },
-
-    // ============================================
-    // ПОЛУЧЕНИЕ СПИСКА ВИДЕО
-    // ============================================
-
-    getItems: function(params, onSuccess, onError) {
-      const self = this;
-      const url = params.url || params.categoryUrl || this.baseUrl;
-
-      console.log('[Pornobriz] Getting items from:', url);
-
-      try {
-        this._loadPage(url, function(html) {
-          try {
-            const items = self._parseItems(html);
-            console.log('[Pornobriz] Parsed items:', items.length);
+        // ============================================
+        // ПОЛУЧЕНИЕ МЕНЮ (вызывает AdultJS при инициализации)
+        // ============================================
+        
+        main: function (params, success, error) {
+            console.log('[Pornobriz] main() called with params:', params);
             
-            if (typeof onSuccess === 'function') {
-              onSuccess(items);
-            }
-          } catch (e) {
-            console.error('[Pornobriz] Parse error:', e);
-            if (typeof onError === 'function') {
-              onError(e);
-            }
-          }
-        }, function(err) {
-          console.error('[Pornobriz] Network error:', err);
-          if (typeof onError === 'function') {
-            onError(err);
-          }
-        });
-      } catch (e) {
-        console.error('[Pornobriz] getItems error:', e);
-        if (typeof onError === 'function') {
-          onError(e);
-        }
-      }
-    },
+            var self = this;
+            
+            // Загружаем главную страницу
+            this._request(params.url || this.baseUrl, function (html) {
+                try {
+                    var items = self._parseListPage(html);
+                    
+                    success({
+                        results: items,
+                        menu: self.categories,
+                        collection: false,
+                        total_pages: 1
+                    });
+                } catch (e) {
+                    console.error('[Pornobriz] main() parse error:', e);
+                    error(e);
+                }
+            }, error);
+        },
 
-    // ============================================
-    // ЗАГРУЗКА HTML СТРАНИЦЫ
-    // ============================================
-
-    _loadPage: function(url, onSuccess, onError) {
-      const self = this;
-      const fullUrl = url.startsWith('http') ? url : this.baseUrl + url;
-
-      console.log('[Pornobriz] Loading page:', fullUrl);
-
-      // Попытка 1: Используем fetch API (если доступен)
-      if (typeof fetch !== 'undefined') {
-        fetch(fullUrl, {
-          method: 'GET',
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Linux; Android 9; HTC One M9) AppleWebKit/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-            'Accept-Language': 'ru-RU,ru;q=0.9',
-            'Cache-Control': 'no-cache'
-          },
-          timeout: TIMEOUT,
-          mode: 'cors',
-          credentials: 'omit'
-        })
-        .then(function(res) {
-          if (!res.ok) throw new Error('HTTP ' + res.status);
-          return res.text();
-        })
-        .then(function(html) {
-          console.log('[Pornobriz] Page loaded, size:', html.length);
-          onSuccess(html);
-        })
-        .catch(function(e) {
-          console.warn('[Pornobriz] Fetch failed, trying XMLHttpRequest:', e);
-          self._loadPageXHR(fullUrl, onSuccess, onError);
-        });
-        return;
-      }
-
-      // Попытка 2: XMLHttpRequest
-      this._loadPageXHR(fullUrl, onSuccess, onError);
-    },
-
-    _loadPageXHR: function(url, onSuccess, onError) {
-      const xhr = new XMLHttpRequest();
-      
-      xhr.timeout = TIMEOUT;
-      xhr.onload = function() {
-        if (xhr.status >= 200 && xhr.status < 300) {
-          console.log('[Pornobriz] XHR loaded, size:', xhr.responseText.length);
-          onSuccess(xhr.responseText);
-        } else {
-          console.error('[Pornobriz] XHR status:', xhr.status);
-          onError(new Error('HTTP ' + xhr.status));
-        }
-      };
-
-      xhr.onerror = function() {
-        console.error('[Pornobriz] XHR error');
-        onError(new Error('Network error'));
-      };
-
-      xhr.ontimeout = function() {
-        console.error('[Pornobriz] XHR timeout');
-        onError(new Error('Request timeout'));
-      };
-
-      try {
-        xhr.open('GET', url, true);
-        xhr.setRequestHeader('User-Agent', 'Mozilla/5.0 (Linux; Android 9; HTC One M9) AppleWebKit/537.36');
-        xhr.setRequestHeader('Accept', 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8');
-        xhr.setRequestHeader('Cache-Control', 'no-cache');
-        xhr.send();
-      } catch (e) {
-        console.error('[Pornobriz] XHR open error:', e);
-        onError(e);
-      }
-    },
-
-    // ============================================
-    // ПАРСИНГ HTML
-    // ============================================
-
-    _parseItems: function(html) {
-      const items = [];
-
-      if (!html || typeof html !== 'string') {
-        console.warn('[Pornobriz] Invalid HTML input');
-        return items;
-      }
-
-      try {
-        // Создаем виртуальный DOM
-        const parser = new DOMParser();
-        const doc = parser.parseFromString(html, 'text/html');
+        // ============================================
+        // ПОЛУЧЕНИЕ СПИСКА ВИДЕО ПО URL (Каталог)
+        // ============================================
         
-        if (!doc) {
-          console.warn('[Pornobriz] DOMParser failed');
-          return this._parseItemsRegex(html);
-        }
-
-        // Ищем все карточки видео
-        const selectors = [
-          'div[class*="item"]',
-          'div[class*="video"]',
-          'article',
-          'li[class*="thumb"]'
-        ];
-
-        let cards = [];
-        for (let i = 0; i < selectors.length && cards.length === 0; i++) {
-          cards = doc.querySelectorAll(selectors[i]);
-          if (cards.length > 0) {
-            console.log('[Pornobriz] Found cards with selector:', selectors[i], 'count:', cards.length);
-          }
-        }
-
-        // Если селекторы не сработали, используем регулярные выражения
-        if (cards.length === 0) {
-          console.log('[Pornobriz] Selectors failed, using regex');
-          return this._parseItemsRegex(html);
-        }
-
-        // Парсим каждую карточку
-        cards.forEach(function(card, index) {
-          try {
-            const item = this._parseCard(card);
-            if (item && item.url && item.title) {
-              items.push(item);
+        view: function (params, success, error) {
+            console.log('[Pornobriz] view() called with URL:', params.url);
+            
+            var self = this;
+            var url = params.url;
+            
+            // Определяем номер страницы (если есть пагинация)
+            if (params.page && params.page > 1) {
+                url = this._addPageToUrl(url, params.page);
             }
-          } catch (e) {
-            console.warn('[Pornobriz] Card parse error at index ' + index + ':', e);
-          }
-        }.bind(this));
 
-      } catch (e) {
-        console.error('[Pornobriz] Parse error:', e);
-        return this._parseItemsRegex(html);
-      }
+            this._request(url, function (html) {
+                try {
+                    var items = self._parseListPage(html);
+                    
+                    success({
+                        results: items,
+                        menu: self.categories,
+                        collection: false,
+                        total_pages: 1  // Сайт не поддерживает пагинацию через API
+                    });
+                } catch (e) {
+                    console.error('[Pornobriz] view() parse error:', e);
+                    error(e);
+                }
+            }, error);
+        },
 
-      return items;
-    },
-
-    _parseCard: function(card) {
-      const item = {};
-
-      try {
-        // Получаем ссылку на видео
-        let link = null;
-        const linkEl = card.querySelector('a[href*="/video/"]') || card.querySelector('a[href]');
+        // ============================================
+        // ПОЛУЧЕНИЕ ПОТОКА ВИДЕО (Плеер)
+        // ============================================
         
-        if (linkEl && linkEl.href) {
-          link = linkEl.href;
-          if (link && !link.startsWith('http')) {
-            link = this.baseUrl + (link.startsWith('/') ? link : '/' + link);
-          }
-        }
+        qualitys: function (url, success, error) {
+            console.log('[Pornobriz] qualitys() called with URL:', url);
+            
+            var self = this;
+            
+            this._request(url, function (html) {
+                try {
+                    var videoUrl = self._extractVideoUrl(html, url);
+                    
+                    if (videoUrl) {
+                        // AdultJS ожидает объект с ключами качества
+                        var qualityObj = {};
+                        qualityObj['720p'] = videoUrl;
+                        
+                        success({
+                            qualitys: qualityObj
+                        });
+                    } else {
+                        error('Video URL not found');
+                    }
+                } catch (e) {
+                    console.error('[Pornobriz] qualitys() error:', e);
+                    error(e);
+                }
+            }, error);
+        },
 
-        if (!link) {
-          return null;
-        }
+        // ============================================
+        // ПОИСК (не поддерживается сайтом)
+        // ============================================
+        
+        search: function (params, success, error) {
+            console.log('[Pornobriz] search() - Not supported');
+            error('Search not supported for this source');
+        },
 
-        item.url = link;
+        // ============================================
+        // ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ
+        // ============================================
 
-        // Получаем название
-        let title = null;
-        const titleEl = card.querySelector('h2, h3, [class*="title"]');
-        if (titleEl && titleEl.textContent) {
-          title = titleEl.textContent.trim();
-        }
-        if (!title && linkEl && linkEl.textContent) {
-          title = linkEl.textContent.trim();
-        }
+        /**
+         * HTTP запрос с обработкой ошибок
+         */
+        _request: function (url, success, error) {
+            var self = this;
+            console.log('[Pornobriz] _request() URL:', url);
 
-        item.title = title || 'Без названия';
+            // Используем встроенный Lampa.Reguest если доступен
+            if (typeof Lampa !== 'undefined' && Lampa.Reguest) {
+                var net = new Lampa.Reguest();
+                
+                net.silent(
+                    url,
+                    function (html) {
+                        console.log('[Pornobriz] _request() success, size:', html.length);
+                        success(html);
+                    },
+                    function (e) {
+                        console.error('[Pornobriz] _request() Lampa.Reguest error:', e);
+                        error(e);
+                    }
+                );
+                return;
+            }
 
-        // Получаем миниатюру
-        const imgEl = card.querySelector('img[src*="/content/"], img[src*="/preview/"], img');
-        if (imgEl && imgEl.src) {
-          let poster = imgEl.src;
-          if (poster && !poster.startsWith('http')) {
-            poster = this.baseUrl + (poster.startsWith('/') ? poster : '/' + poster);
-          }
-          item.poster = poster;
-        } else {
-          item.poster = this.icon;
-        }
+            // Fallback на XMLHttpRequest
+            this._requestXHR(url, success, error);
+        },
 
-        // Получаем длительность
-        const durationEl = card.querySelector('[class*="duration"], span:contains(":"), .time');
-        if (durationEl && durationEl.textContent) {
-          item.duration = durationEl.textContent.trim();
-        }
-
-        // Получаем качество
-        const qualityEl = card.querySelector('[class*="quality"], [class*="hd"]');
-        if (qualityEl && qualityEl.textContent) {
-          item.quality = qualityEl.textContent.trim();
-        } else {
-          item.quality = 'FULL HD';
-        }
-
-      } catch (e) {
-        console.warn('[Pornobriz] Card parse error:', e);
-        return null;
-      }
-
-      return item;
-    },
-
-    // ============================================
-    // ПАРСИНГ БЕЗ DOM (FALLBACK)
-    // ============================================
-
-    _parseItemsRegex: function(html) {
-      const items = [];
-
-      if (!html) return items;
-
-      try {
-        // Ищем все ссылки на видео
-        const videoLinkRegex = /href=["']([^"']*\/video\/[^"']*?)["']/gi;
-        const matches = html.matchAll(videoLinkRegex);
-
-        let match;
-        const seenUrls = {};
-
-        while ((match = matches.next()) && !match.done) {
-          const url = match.value[1];
-          
-          if (url && !seenUrls[url]) {
-            seenUrls[url] = true;
-
-            const item = {
-              url: url.startsWith('http') ? url : this.baseUrl + (url.startsWith('/') ? url : '/' + url),
-              title: url.split('/').pop().replace(/_/g, ' ').replace(/[^a-zа-яё0-9 ]/gi, ''),
-              poster: this.icon,
-              quality: 'FULL HD'
+        /**
+         * XMLHttpRequest для старых Android TV
+         */
+        _requestXHR: function (url, success, error) {
+            var xhr = new XMLHttpRequest();
+            
+            xhr.timeout = this.timeout;
+            
+            xhr.onload = function () {
+                if (xhr.status >= 200 && xhr.status < 300) {
+                    console.log('[Pornobriz] XHR success, status:', xhr.status);
+                    success(xhr.responseText);
+                } else {
+                    console.error('[Pornobriz] XHR error, status:', xhr.status);
+                    error(new Error('HTTP ' + xhr.status));
+                }
             };
 
-            // Пытаемся найти изображение рядом с ссылкой
-            const cardStart = Math.max(0, html.lastIndexOf('<', match.index) - 500);
-            const cardEnd = html.indexOf('</div>', match.index) + 6;
-            const cardHtml = html.substring(cardStart, cardEnd);
+            xhr.onerror = function () {
+                console.error('[Pornobriz] XHR network error');
+                error(new Error('Network error'));
+            };
 
-            const imgRegex = /src=["']([^"']*(?:content\/screen|preview)[^"']*?)["']/i;
-            const imgMatch = cardHtml.match(imgRegex);
-            if (imgMatch && imgMatch[1]) {
-              let poster = imgMatch[1];
-              if (!poster.startsWith('http')) {
-                poster = this.baseUrl + (poster.startsWith('/') ? poster : '/' + poster);
-              }
-              item.poster = poster;
+            xhr.ontimeout = function () {
+                console.error('[Pornobriz] XHR timeout');
+                error(new Error('Timeout'));
+            };
+
+            try {
+                xhr.open('GET', url, true);
+                xhr.setRequestHeader('User-Agent', 'Mozilla/5.0 (Linux; Android 9) AppleWebKit/537.36');
+                xhr.setRequestHeader('Accept', 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8');
+                xhr.send();
+            } catch (e) {
+                console.error('[Pornobriz] XHR open error:', e);
+                error(e);
+            }
+        },
+
+        /**
+         * Парсинг списка видео
+         */
+        _parseListPage: function (html) {
+            var items = [];
+
+            if (!html) {
+                console.warn('[Pornobriz] Empty HTML input');
+                return items;
             }
 
-            items.push(item);
-          }
-        }
+            try {
+                // Способ 1: Используем регулярные выражения (самый надежный для Android TV)
+                var cardRegex = /<div[^>]*class="[^"]*item[^"]*"[^>]*>([\s\S]*?)<\/div>/g;
+                var match;
+                var seenUrls = {};
 
-        console.log('[Pornobriz] Regex parsed items:', items.length);
-      } catch (e) {
-        console.error('[Pornobriz] Regex parse error:', e);
-      }
+                while ((match = cardRegex.exec(html)) !== null) {
+                    var cardHtml = match[1];
+                    var item = this._parseCard(cardHtml);
+                    
+                    if (item && item.video && !seenUrls[item.video]) {
+                        seenUrls[item.video] = true;
+                        items.push(item);
+                    }
+                }
 
-      return items;
-    },
+                console.log('[Pornobriz] _parseListPage() found items:', items.length);
 
-    // ============================================
-    // ПОЛУЧЕНИЕ ПОТОКА ВИДЕО
-    // ============================================
-
-    getStream: function(data, onSuccess, onError) {
-      const self = this;
-      const videoUrl = typeof data === 'string' ? data : (data.url || data);
-
-      console.log('[Pornobriz] Getting stream:', videoUrl);
-
-      this._loadPage(videoUrl, function(html) {
-        try {
-          const sources = self._findVideoSources(html, videoUrl);
-          console.log('[Pornobriz] Found sources:', sources.length);
-
-          if (sources.length > 0) {
-            // Возвращаем первый найденный источник
-            const source = sources[0];
-            if (typeof onSuccess === 'function') {
-              onSuccess({
-                url: source.url,
-                quality: source.quality || '720p',
-                type: source.type || 'mp4'
-              });
+            } catch (e) {
+                console.error('[Pornobriz] _parseListPage() error:', e);
             }
-          } else {
-            throw new Error('No video sources found');
-          }
-        } catch (e) {
-          console.error('[Pornobriz] Stream error:', e);
-          if (typeof onError === 'function') {
-            onError(e);
-          }
+
+            return items;
+        },
+
+        /**
+         * Парсинг одной карточки видео
+         */
+        _parseCard: function (html) {
+            try {
+                var item = {
+                    video: '',
+                    name: '',
+                    picture: '',
+                    source: 'pornobriz',
+                    json: true  // Флаг для AdultJS: требуется запрос qualitys()
+                };
+
+                // Ищем ссылку на видео
+                var linkMatch = html.match(/href=["']([^"']*\/video\/[^"']*?)["']/);
+                if (linkMatch && linkMatch[1]) {
+                    var url = linkMatch[1];
+                    item.video = url.indexOf('http') === 0 ? url : this.baseUrl + (url[0] === '/' ? url : '/' + url);
+                } else {
+                    return null;
+                }
+
+                // Ищем название
+                var titleMatch = html.match(/title=["']([^"']+)["']/);
+                if (titleMatch && titleMatch[1]) {
+                    item.name = titleMatch[1];
+                } else {
+                    var textMatch = html.match(/<a[^>]*>[^<]*<\/a>/);
+                    if (textMatch) {
+                        item.name = textMatch[0].replace(/<[^>]+>/g, '').trim();
+                    }
+                }
+
+                if (!item.name) {
+                    item.name = 'Video';
+                }
+
+                // Ищем миниатюру
+                var imgMatch = html.match(/src=["']([^"']*(?:content\/screen|preview)[^"']*?)["']/);
+                if (imgMatch && imgMatch[1]) {
+                    var imgUrl = imgMatch[1];
+                    item.picture = imgUrl.indexOf('http') === 0 ? imgUrl : this.baseUrl + (imgUrl[0] === '/' ? imgUrl : '/' + imgUrl);
+                } else {
+                    item.picture = this.icon;
+                }
+
+                // Ищем длительность
+                var durationMatch = html.match(/<span[^>]*class="[^"]*duration[^"]*"[^>]*>([^<]+)<\/span>/);
+                if (durationMatch && durationMatch[1]) {
+                    item.duration = durationMatch[1].trim();
+                }
+
+                // Ищем качество
+                var qualityMatch = html.match(/<span[^>]*class="[^"]*quality[^"]*"[^>]*>([^<]+)<\/span>/);
+                if (qualityMatch && qualityMatch[1]) {
+                    item.quality = qualityMatch[1].trim();
+                } else {
+                    item.quality = '720p';
+                }
+
+                return item;
+
+            } catch (e) {
+                console.error('[Pornobriz] _parseCard() error:', e);
+                return null;
+            }
+        },
+
+        /**
+         * Извлечение прямой ссылки на видео со страницы
+         */
+        _extractVideoUrl: function (html, pageUrl) {
+            try {
+                // Способ 1: Поиск в тегах video/source
+                var sourceMatch = html.match(/<source[^>]*src=["']([^"']*\.mp4[^"']*)["']/i);
+                if (sourceMatch && sourceMatch[1]) {
+                    return this._resolveUrl(sourceMatch[1]);
+                }
+
+                // Способ 2: Поиск в iframe src
+                var iframeMatch = html.match(/<iframe[^>]*src=["']([^"']*\.mp4[^"']*)["']/i);
+                if (iframeMatch && iframeMatch[1]) {
+                    return this._resolveUrl(iframeMatch[1]);
+                }
+
+                // Способ 3: Поиск в JavaScript переменных
+                var jsMatch = html.match(/(?:src|url|video)\s*:\s*["']([^"']*\.mp4[^"']*)["']/i);
+                if (jsMatch && jsMatch[1]) {
+                    return this._resolveUrl(jsMatch[1]);
+                }
+
+                // Способ 4: Поиск любых .mp4 ссылок
+                var allMatch = html.match(/https?:\/\/[^\s"'<>]*\.mp4[^\s"'<>]*/i);
+                if (allMatch) {
+                    return allMatch[0];
+                }
+
+                // Способ 5: Генерируем по ID видео
+                var idMatch = pageUrl.match(/\/video\/([a-z0-9_-]+)\/?/i);
+                if (idMatch && idMatch[1]) {
+                    return this.baseUrl + '/preview/' + idMatch[1] + '.mp4';
+                }
+
+                return null;
+
+            } catch (e) {
+                console.error('[Pornobriz] _extractVideoUrl() error:', e);
+                return null;
+            }
+        },
+
+        /**
+         * Разрешение относительного URL
+         */
+        _resolveUrl: function (url) {
+            if (!url) return null;
+            if (url.indexOf('http') === 0) return url;
+            if (url.indexOf('//') === 0) return 'https:' + url;
+            return this.baseUrl + (url[0] === '/' ? url : '/' + url);
+        },
+
+        /**
+         * Добавление номера страницы к URL (если сайт поддерживает)
+         */
+        _addPageToUrl: function (url, page) {
+            if (page <= 1) return url;
+            
+            // Pornobriz не поддерживает очевидную пагинацию через URL
+            // Возвращаем тот же URL (в реальности нужно проверить структуру сайта)
+            return url;
         }
-      }, function(err) {
-        console.error('[Pornobriz] Load stream error:', err);
-        if (typeof onError === 'function') {
-          onError(err);
-        }
-      });
-    },
-
-    _findVideoSources: function(html, pageUrl) {
-      const sources = [];
-
-      if (!html) return sources;
-
-      try {
-        // Способ 1: Поиск в тегах video source
-        const videoSourceRegex = /<source[^>]*src=["']([^"']*\.mp4[^"']*)["']/gi;
-        let match;
-
-        while ((match = videoSourceRegex.exec(html)) !== null) {
-          const url = match[1];
-          if (url && !sources.some(s => s.url === url)) {
-            sources.push({
-              url: url.startsWith('http') ? url : this.baseUrl + (url.startsWith('/') ? url : '/' + url),
-              quality: '720p',
-              type: 'mp4'
-            });
-          }
-        }
-
-        // Способ 2: Поиск в iframe src
-        const iframeRegex = /<iframe[^>]*src=["']([^"']*\.mp4[^"']*)["']/gi;
-        while ((match = iframeRegex.exec(html)) !== null) {
-          const url = match[1];
-          if (url && !sources.some(s => s.url === url)) {
-            sources.push({
-              url: url.startsWith('http') ? url : this.baseUrl + (url.startsWith('/') ? url : '/' + url),
-              quality: '720p',
-              type: 'mp4'
-            });
-          }
-        }
-
-        // Способ 3: Поиск в JavaScript переменных
-        const jsRegex = /['"]?(?:url|src|video)['"]?\s*:\s*['"]([^'"]*\.mp4[^'"]*)['"]/gi;
-        while ((match = jsRegex.exec(html)) !== null) {
-          const url = match[1];
-          if (url && !sources.some(s => s.url === url)) {
-            sources.push({
-              url: url.startsWith('http') ? url : this.baseUrl + (url.startsWith('/') ? url : '/' + url),
-              quality: '720p',
-              type: 'mp4'
-            });
-          }
-        }
-
-        // Способ 4: Поиск любых .mp4 URL
-        const allVideoRegex = /https?:\/\/[^\s"'<>]*\.mp4[^\s"'<>]*/gi;
-        while ((match = allVideoRegex.exec(html)) !== null) {
-          const url = match[0];
-          if (!sources.some(s => s.url === url)) {
-            sources.push({
-              url: url,
-              quality: '720p',
-              type: 'mp4'
-            });
-          }
-        }
-
-        // Способ 5: Генерируем URL по паттерну, если ничего не найдено
-        if (sources.length === 0) {
-          const titleMatch = pageUrl.match(/\/video\/([a-z0-9_-]+)\/?$/i);
-          if (titleMatch) {
-            const previewUrl = this.baseUrl + '/preview/' + titleMatch[1] + '.mp4';
-            sources.push({
-              url: previewUrl,
-              quality: '720p',
-              type: 'mp4'
-            });
-          }
-        }
-
-      } catch (e) {
-        console.error('[Pornobriz] Source find error:', e);
-      }
-
-      return sources;
-    },
+    };
 
     // ============================================
-    // ПОИСК (НЕ ПОДДЕРЖИВАЕТСЯ)
+    // РЕГИСТРАЦИЯ В ADULTJS
     // ============================================
 
-    search: function(query, onSuccess, onError) {
-      console.log('[Pornobriz] Search not supported');
-      if (typeof onError === 'function') {
-        onError(new Error('Search is not supported'));
-      }
-    },
+    try {
+        // Проверяем, доступен ли API AdultJS
+        if (typeof window !== 'undefined' && typeof window.AdultPlugin !== 'undefined') {
+            
+            console.log('[Pornobriz] Registering parser with AdultPlugin.registerParser()');
+            
+            // Используем стандартный метод регистрации AdultJS
+            window.AdultPlugin.registerParser('pornobriz', PornoBrizParser);
+            
+        } else {
+            console.warn('[Pornobriz] AdultPlugin not found, trying alternative registration');
+            
+            // Fallback: прямое присвоение
+            window.PornoBrizParser = PornoBrizParser;
+        }
 
-    // ============================================
-    // ПОЛУЧЕНИЕ КАТЕГОРИЙ
-    // ============================================
+        console.log('[Pornobriz] Parser loaded successfully v' + PornoBrizParser.version);
 
-    getCategories: function() {
-      return this.categories.map(function(cat) {
-        return {
-          id: cat.id,
-          title: cat.title,
-          url: cat.url
-        };
-      });
+    } catch (e) {
+        console.error('[Pornobriz] Registration failed:', e);
     }
-  };
-
-  // ============================================
-  // РЕГИСТРАЦИЯ ПАРСЕРА
-  // ============================================
-
-  try {
-    // Инициализируем парсер
-    PornoBrizParser.init();
-    
-    // Экспортируем глобально
-    if (typeof window !== 'undefined') {
-      window.PornoBrizParser = PornoBrizParser;
-    }
-
-    console.log('[Pornobriz] Parser loaded successfully');
-
-  } catch (e) {
-    console.error('[Pornobriz] Registration error:', e);
-  }
 
 })();
