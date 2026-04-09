@@ -102,57 +102,33 @@
   //
   // nodes: //div[contains(@class,'thumb_main')]
   // ----------------------------------------------------------
-  function parsePlaylist(html) {
+function parsePlaylist(html) {
     if (!html) return [];
-    var doc   = new DOMParser().parseFromString(html, 'text/html');
+    // Удаляем лишние пробелы и переносы строки для стабильности RegExp или DOM
+    var doc = new DOMParser().parseFromString(html, 'text/html');
     var cards = [];
+    
+    // Используем селектор из вашего файла анализа (arch.txt/html.txt)
+    var items = doc.querySelectorAll('.th-item, .thumb_main'); 
+    
+    items.forEach(function(el) {
+        var a = el.querySelector('a');
+        if (!a) return;
+        
+        var img = el.querySelector('img');
+        var href = a.getAttribute('href');
+        if (href && href.indexOf('http') === -1) href = HOST + href;
 
-    // XPath: все блоки карточек
-    var nodes = doc.evaluate(
-      "//div[contains(@class,'thumb_main')]",
-      doc, null, XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null
-    );
-
-    for (var i = 0; i < nodes.snapshotLength; i++) {
-      var el = nodes.snapshotItem(i);
-
-      // Ссылка
-      var aEl  = el.querySelector('a');
-      var href = aEl ? aEl.getAttribute('href') : '';
-      if (!href) continue;
-      if (href.indexOf('http') !== 0) href = HOST + href;
-
-      // Название
-      var titleEl = el.querySelector('.th-title');
-      var name    = titleEl ? titleEl.textContent.trim() : '';
-      if (!name && aEl) name = aEl.getAttribute('title') || '';
-      if (!name) continue;
-
-      // Картинка: data-original
-      var imgEl   = el.querySelector('img');
-      var picture = imgEl ? (imgEl.getAttribute('data-original') || imgEl.getAttribute('src') || '') : '';
-
-      // Превью: video[data-preview]
-      var vidEl   = el.querySelector('video');
-      var preview = vidEl ? (vidEl.getAttribute('data-preview') || '') : '';
-
-      // Длительность
-      var durEl   = el.querySelector('.duration');
-      var time    = durEl ? durEl.textContent.trim() : '';
-
-      cards.push({
-        name:    name,
-        video:   href,
-        picture: picture,
-        preview: preview || null,
-        time:    time,
-        quality: 'HD',
-        json:    true,   // нужна страница для поиска mp4
-        related: true,
-        model:   null,
-        source:  NAME,
-      });
-    }
+        cards.push({
+            name: el.querySelector('.th-title')?.textContent.trim() || a.getAttribute('title'),
+            video: href,
+            picture: img?.getAttribute('data-original') || img?.getAttribute('src'),
+            json: true,
+            source: NAME
+        });
+    });
+    return cards;
+  }
 
     // Fallback: если XPath не сработал — CSS-селектор
     if (!cards.length) {
