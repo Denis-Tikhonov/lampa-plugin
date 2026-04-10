@@ -1,13 +1,10 @@
 // =============================================================
 // xv-ru.js — Парсер xv-ru.com для AdultJS / AdultPlugin (Lampa)
-// Version  : 1.2.0
+// Version  : 1.4.0
 // Changed  :
-//   [1.2.0] ИСПРАВЛЕНО: name извлекается из slug href (/47061148/she_called_me...)
-//           ИСПРАВЛЕНО: img.alt добавлен как промежуточный fallback для name
-//           ИСПРАВЛЕНО: убрана дублирующая проверка href.indexOf('/video') у fallback aEl
-//           ИСПРАВЛЕНО: Стратегия 3 ищет img в a.parentElement если не нашла внутри a
-//           ИСПРАВЛЕНО: CSS фильтр вложенности через classList.contains вместо indexOf
-//           УБРАНА: диагностика первых 3 элементов (задача выполнена)
+//   [1.4.0] ИСПРАВЛЕНО: slugToName — новый regex /video.{hash}/{id}/0/{slug}
+//           ДОБАВЛЕНО:  getStreamLinks — regex для mp4/hls cdn xvideos-cdn.com
+//           ДОБАВЛЕНО:  Cookie: static_cdn=1 во все сетевые запросы
 // =============================================================
 
 (function () {
@@ -18,6 +15,15 @@
   var TAG  = '[xv-ru]';
 
   var WORKER_DEFAULT = 'https://ВАШ-WORKER.ВАШ-АККАУНТ.workers.dev/?url=';
+
+  // ----------------------------------------------------------
+  // Заголовки — добавляем static_cdn cookie [1.4.0]
+  // ----------------------------------------------------------
+  var REQUEST_HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Cookie':     'static_cdn=1',
+    'Referer':    HOST + '/',
+  };
 
   function getWorkerUrl() {
     var url = (window.AdultPlugin && window.AdultPlugin.workerUrl)
@@ -60,26 +66,11 @@
   function err(msg)  { console.error(TAG, msg); }
 
   // ----------------------------------------------------------
-  // ПРАВКА 1: slug из href → читаемое название
-  // Пример: /47061148/she_called_me_daddy_so_sweety
-  //       → She Called Me Daddy So Sweety
+  // _slugProcess — slug в читаемый заголовок
+  // "while_wrestling_with_my_stepsister" → "While Wrestling With My Stepsister"
   // ----------------------------------------------------------
-  function slugToName(href) {
-    if (!href) return '';
-
-    // Берём последний сегмент пути (после последнего /)
-    // Формат xvideos: /video.xxxxx/12345678/slug_here
-    var m = href.match(/\/(\d+)\/([^\/\?#]+)/);
-    if (!m || !m[2]) {
-      // Запасной: просто последний сегмент
-      var parts = href.replace(/\/$/, '').split('/');
-      m = [null, null, parts[parts.length - 1] || ''];
-    }
-
-    var slug = m[2];
+  function _slugProcess(slug) {
     if (!slug || slug.length < 3) return '';
-
-    // Заменяем - и _ на пробел, capitalize каждое слово
     var words = slug.replace(/[-_]+/g, ' ').trim().split(' ');
     var result = [];
     for (var i = 0; i < words.length; i++) {
@@ -91,13 +82,57 @@
   }
 
   // ----------------------------------------------------------
-  // Сетевой слой
+  // slugToName [1.4.0 ИСПРАВЛЕНО]
+  //
+  // Реальный паттерн xv-ru.com:
+  //   /video.{hash}/{id}/{num}/{slug}
+  //   /video.oufcople1b0/47056948/0/while_wrestling_with_my_stepsister...
+  //                               ↑ /0/ пропускаем — это не slug!
+  //
+  // Старый regex `/(\d+)\/([^\/]+)/` ловил "0" как slug.
+  // Новый regex захватывает сегмент ПОСЛЕ двух числовых частей.
+  // ----------------------------------------------------------
+  function slugToName(href) {
+    if (!href) return '';
+
+    // Приоритет 1: /video.{hash}/{id}/{num}/{slug} — основной формат xv-ru
+    var mFull = href.match(/\/video\.[^\/]+\/\d+\/\d+\/([^\/\?#]+)/);
+    if (mFull && mFull[1] && mFull[1].length >= 3) {
+      return _slugProcess(mFull[1]);
+    }
+
+    // Приоритет 2: /THUMBNUM/{slug} — страховочный fallback
+    var mThumb = href.match(/\/THUMBNUM\/([^\/\?#]+)/i);
+    if (mThumb && mThumb[1] && mThumb[1].length >= 3) {
+      return _slugProcess(mThumb[1]);
+    }
+
+    // Приоритет 3: последний не-числовой сегмент пути
+    var parts = href.replace(/\/+$/, '').split('/');
+    for (var i = parts.length - 1; i >= 0; i--) {
+      var seg = parts[i];
+      if (!seg) continue;
+      if (/^\d+$/.test(seg)) continue;                          // пропускаем числа
+      if (seg.toUpperCase() === 'THUMBNUM') continue;           // пропускаем THUMBNUM
+      if (seg.indexOf('video.') === 0) continue;                // пропускаем video.hash
+      if (seg.length < 3) continue;
+      return _slugProcess(seg);
+    }
+
+    return '';
+  }
+
+  // ----------------------------------------------------------
+  // Сетевой слой — с поддержкой заголовков [1.4.0]
   // ----------------------------------------------------------
   function httpGet(url, success, failure) {
     log('httpGet -> ' + url);
 
     if (window.AdultPlugin && typeof window.AdultPlugin.networkRequest === 'function') {
-      window.AdultPlugin.networkRequest(url, success, failure, { type: 'html' });
+      window.AdultPlugin.networkRequest(
+        url, success, failure,
+        { type: 'html', headers: REQUEST_HEADERS }
+      );
       return;
     }
 
@@ -113,7 +148,8 @@
           warn('httpGet -> native ошибка, fallback Reguest');
           _reguest(url, success, failure);
         },
-        false
+        false,
+        { headers: REQUEST_HEADERS }
       );
       return;
     }
@@ -133,7 +169,7 @@
             _fetch(url, success, failure);
           },
           false,
-          { dataType: 'text', timeout: 12000 }
+          { dataType: 'text', timeout: 12000, headers: REQUEST_HEADERS }
         );
         return;
       } catch (ex) {
@@ -146,7 +182,10 @@
   function _fetch(url, success, failure) {
     if (typeof fetch === 'undefined') { failure('no_http_method'); return; }
     log('httpGet -> fetch: ' + url);
-    fetch(url, { method: 'GET' })
+    fetch(url, {
+      method:  'GET',
+      headers: REQUEST_HEADERS,
+    })
       .then(function (r) {
         if (!r.ok) throw new Error('HTTP ' + r.status);
         return r.text();
@@ -172,10 +211,7 @@
   // ----------------------------------------------------------
   function parseState(url) {
     var sort = '', search = '';
-    if (!url) {
-      log('parseState -> sort= search=');
-      return { sort: sort, search: search };
-    }
+    if (!url) return { sort: sort, search: search };
 
     var kMatch = url.match(/[?&]search=([^&]+)/) || url.match(/[?&]k=([^&]+)/);
     if (kMatch && kMatch[1]) {
@@ -238,80 +274,62 @@
   }
 
   // ----------------------------------------------------------
-  // _hasClass — безопасная проверка наличия класса
+  // _hasClass
   // ----------------------------------------------------------
   function _hasClass(el, cls) {
     if (!el || !el.className) return false;
     if (el.classList) return el.classList.contains(cls);
-    // fallback для старых движков
     return (' ' + el.className + ' ').indexOf(' ' + cls + ' ') !== -1;
   }
 
   // ----------------------------------------------------------
+  // _cleanVideoHref
+  // ----------------------------------------------------------
+  function _cleanVideoHref(href) {
+    if (!href) return href;
+    href = href.replace(/\/THUMBNUM\//i, '/');
+    href = href.replace(/\/THUMBNUM$/i, '');
+    return href;
+  }
+
+  // ----------------------------------------------------------
   // _extractCard
-  //
-  // ПРАВКА 1: name извлекается из slug href если другие способы не дали результат
-  // ПРАВКА 2: img.alt добавлен как промежуточный fallback
-  // ПРАВКА 3: убрана дублирующая проверка href.indexOf('/video') у fallback aEl
   // ----------------------------------------------------------
   function _extractCard(el) {
 
-    // Ссылка на видео
     var aEl = el.querySelector('a[href*="/video"]');
-
-    // ПРАВКА 3: если специфичный селектор не нашёл — берём любую a[href]
-    // без повторной проверки на /video (XPath уже гарантирует контекст)
     if (!aEl) aEl = el.querySelector('a[href]');
     if (!aEl) return null;
 
-    var href = aEl.getAttribute('href') || '';
-    if (!href) return null;
-    if (href.indexOf('http') !== 0) href = HOST + href;
+    var rawHref = aEl.getAttribute('href') || '';
+    if (!rawHref) return null;
+    if (rawHref.indexOf('http') !== 0) rawHref = HOST + rawHref;
 
-    // Картинку ищем сразу — нужна для alt fallback названия
+    var href = _cleanVideoHref(rawHref);
+
     var imgEl = aEl.querySelector('img') || el.querySelector('img');
 
-    // ----------------------------------------------------------
-    // Название — цепочка источников:
-    //   1. p.title a  (стандарт xvideos)
-    //   2. p.title
-    //   3. a[title] атрибут
-    //   4. любой [title] внутри карточки
-    //   5. ПРАВКА 2: img.alt
-    //   6. ПРАВКА 1: slug из href
-    // ----------------------------------------------------------
     var name = '';
 
     var titleEl = el.querySelector('p.title a') || el.querySelector('p.title');
-    if (titleEl) {
-      name = (titleEl.getAttribute('title') || titleEl.textContent || '').trim();
-    }
+    if (titleEl) name = (titleEl.getAttribute('title') || titleEl.textContent || '').trim();
 
-    if (!name) {
-      name = (aEl.getAttribute('title') || '').trim();
-    }
+    if (!name) name = (aEl.getAttribute('title') || '').trim();
 
     if (!name) {
       var anyTitle = el.querySelector('[title]');
       if (anyTitle) name = (anyTitle.getAttribute('title') || '').trim();
     }
 
-    // ПРАВКА 2: img.alt
-    if (!name && imgEl) {
-      name = (imgEl.getAttribute('alt') || '').trim();
-    }
+    if (!name && imgEl) name = (imgEl.getAttribute('alt') || '').trim();
 
-    // ПРАВКА 1: slug из href
-    if (!name || name.length < 3) {
-      name = slugToName(href);
-    }
+    // slugToName теперь правильно извлекает slug из /video.{hash}/{id}/0/{slug}
+    if (!name || name.length < 3) name = slugToName(rawHref);
 
     if (!name || name.length < 3) return null;
 
-    // Картинка
     var picture = _getImgSrc(imgEl);
 
-    // Длительность
     var durEl = el.querySelector('.duration, span.duration, time, .dur');
     var time  = durEl ? (durEl.textContent || '').trim() : '';
 
@@ -332,9 +350,6 @@
 
   // ----------------------------------------------------------
   // parsePlaylist
-  //
-  // ПРАВКА 4: Стратегия 3 ищет img в parentElement если нет внутри a
-  // ПРАВКА 5: CSS фильтр вложенности через _hasClass вместо indexOf
   // ----------------------------------------------------------
   function parsePlaylist(html) {
     if (!html) { warn('parsePlaylist -> html пустой'); return []; }
@@ -343,7 +358,6 @@
     var doc;
     try {
       doc = new DOMParser().parseFromString(html, 'text/html');
-      log('parsePlaylist -> DOMParser OK');
     } catch (e) {
       err('parsePlaylist -> DOMParser ошибка: ' + e.message);
       return [];
@@ -352,7 +366,7 @@
     var cards = [];
     var seen  = {};
 
-    // --- Стратегия 1: XPath (только верхний уровень .thumb) ---
+    // --- Стратегия 1: XPath ---
     log('parsePlaylist -> Стратегия 1: XPath...');
     try {
       var xp = "//div[contains(concat(' ',normalize-space(@class),' '),' thumb ') " +
@@ -374,7 +388,7 @@
       warn('parsePlaylist -> XPath ошибка: ' + e.message);
     }
 
-    // --- Стратегия 2: CSS querySelectorAll ---
+    // --- Стратегия 2: CSS ---
     if (!cards.length) {
       log('parsePlaylist -> Стратегия 2: CSS...');
       var selectors = [
@@ -391,7 +405,6 @@
         log('parsePlaylist -> CSS "' + selectors[s] + '" найдено: ' + els.length);
 
         forEachNode(els, function (el) {
-          // ПРАВКА 5: точная проверка класса через _hasClass
           var parent = el.parentElement;
           if (parent && _hasClass(parent, 'thumb')) return;
 
@@ -413,25 +426,23 @@
       var links = doc.querySelectorAll('a[href*="/video"]');
 
       forEachNode(links, function (a) {
-        var href = a.getAttribute('href') || '';
-        if (!href) return;
-        if (href.indexOf('http') !== 0) href = HOST + href;
+        var rawHref = a.getAttribute('href') || '';
+        if (!rawHref) return;
+        if (rawHref.indexOf('http') !== 0) rawHref = HOST + rawHref;
+
+        var href = _cleanVideoHref(rawHref);
         if (seen[href]) return;
 
-        // ПРАВКА 4: ищем img внутри a, потом в parentElement
         var img = a.querySelector('img');
-        if (!img && a.parentElement) {
-          img = a.parentElement.querySelector('img');
-        }
+        if (!img && a.parentElement) img = a.parentElement.querySelector('img');
 
-        // ПРАВКА 1+2: название из alt → slug
         var title = '';
         if (img) title = (img.getAttribute('alt') || '').trim();
-        if (!title || title.length < 3) title = slugToName(href);
-        if (a.getAttribute('title')) {
-          var attrTitle = a.getAttribute('title').trim();
+        if (!title || title.length < 3) {
+          var attrTitle = (a.getAttribute('title') || '').trim();
           if (attrTitle.length >= 3) title = attrTitle;
         }
+        if (!title || title.length < 3) title = slugToName(rawHref);
         if (!title || title.length < 3) return;
 
         var pic = _getImgSrc(img);
@@ -461,7 +472,13 @@
   }
 
   // ----------------------------------------------------------
-  // getStreamLinks
+  // getStreamLinks [1.4.0 — добавлены CDN-regex xvideos-cdn.com]
+  //
+  // Реальные URL из анализа сайта:
+  //   MP4 SD:  https://mp4-cdn77.xvideos-cdn.com/.../mp4_sd.mp4?secure=...
+  //   MP4 HD:  https://mp4-cdn77.xvideos-cdn.com/.../mp4_hd.mp4?secure=...
+  //   HLS:     https://hls-cdn77.xvideos-cdn.com/TOKEN.../hls.m3u8
+  //   (также встречаются: mp4-gcore, hls-gcore домены)
   // ----------------------------------------------------------
   function getStreamLinks(url, success, failure) {
     log('getStreamLinks -> ' + url);
@@ -469,13 +486,15 @@
       log('getStreamLinks -> HTML длина: ' + html.length);
       var q = {};
 
+      // --- Метод 1: html5player.set* (классический xvideos API) ---
       var mLow  = html.match(/html5player\.setVideoUrlLow$['"]([^'"]+)['"]$/);
       var mHigh = html.match(/html5player\.setVideoUrlHigh$['"]([^'"]+)['"]$/);
       var mHLS  = html.match(/html5player\.setVideoHLS$['"]([^'"]+)['"]$/);
-      if (mLow  && mLow[1])  { q['480p'] = mLow[1];  }
-      if (mHigh && mHigh[1]) { q['720p'] = mHigh[1]; }
-      if (mHLS  && mHLS[1])  { q['HLS']  = mHLS[1];  }
+      if (mLow  && mLow[1])  q['480p'] = mLow[1];
+      if (mHigh && mHigh[1]) q['720p'] = mHigh[1];
+      if (mHLS  && mHLS[1])  q['HLS']  = mHLS[1];
 
+      // --- Метод 2: JSON-поля в JS ({"url_low":".."}) ---
       if (!Object.keys(q).length) {
         var mL2 = html.match(/"url_low"\s*:\s*"([^"]+)"/);
         var mH2 = html.match(/"url_high"\s*:\s*"([^"]+)"/);
@@ -485,6 +504,21 @@
         if (mS2 && mS2[1]) q['HLS']  = mS2[1];
       }
 
+      // --- Метод 3: CDN xvideos-cdn.com [1.4.0] ---
+      // Ищем конкретные CDN-домены из реального анализа сайта
+      if (!Object.keys(q).length) {
+        // mp4_sd.mp4 — стандартное качество
+        var mSd = html.match(/["'](https?:\/\/mp4-[a-z0-9]+\.xvideos-cdn\.com\/[^"'\s]+mp4_sd\.mp4[^"'\s]*)/);
+        // mp4_hd.mp4 — высокое качество
+        var mHd = html.match(/["'](https?:\/\/mp4-[a-z0-9]+\.xvideos-cdn\.com\/[^"'\s]+mp4_hd\.mp4[^"'\s]*)/);
+        // hls.m3u8
+        var mCdnHls = html.match(/["'](https?:\/\/hls-[a-z0-9]+\.xvideos-cdn\.com\/[^"'\s]+\.m3u8[^"'\s]*)/);
+        if (mSd     && mSd[1])     q['480p'] = mSd[1];
+        if (mHd     && mHd[1])     q['720p'] = mHd[1];
+        if (mCdnHls && mCdnHls[1]) q['HLS']  = mCdnHls[1];
+      }
+
+      // --- Метод 4: любой .mp4 в тексте ---
       if (!Object.keys(q).length) {
         var reMp4 = /["'](https?:\/\/[^"'\s]+\.mp4[^"'\s]*)/g;
         var m4, idx4 = 0;
@@ -494,16 +528,20 @@
         }
       }
 
+      // --- Метод 5: любой .m3u8 в тексте ---
       if (!Object.keys(q).length) {
         var mM = html.match(/["'](https?:\/\/[^"'\s]+\.m3u8[^"'\s]*)/);
         if (mM && mM[1]) q['HLS'] = mM[1];
       }
 
+      // --- Итог ---
       var keys = Object.keys(q);
       if (!keys.length) {
         err('getStreamLinks -> ссылки не найдены');
-        warn('getStreamLinks -> html5player: ' + (html.match(/html5player/gi) || []).length);
-        warn('getStreamLinks -> .mp4: '        + (html.match(/\.mp4/gi) || []).length);
+        warn('getStreamLinks -> html5player hits:   ' + (html.match(/html5player/gi)    || []).length);
+        warn('getStreamLinks -> xvideos-cdn hits:   ' + (html.match(/xvideos-cdn\.com/gi) || []).length);
+        warn('getStreamLinks -> .mp4 hits:          ' + (html.match(/\.mp4/gi)           || []).length);
+        warn('getStreamLinks -> URL был: ' + url);
         failure('xv-ru: нет ссылок на видео');
         return;
       }
@@ -625,7 +663,7 @@
   function tryRegister() {
     if (window.AdultPlugin && typeof window.AdultPlugin.registerParser === 'function') {
       window.AdultPlugin.registerParser(NAME, Parser);
-      log('v1.2.0 зарегистрирован');
+      log('v1.4.0 зарегистрирован');
       return true;
     }
     return false;
