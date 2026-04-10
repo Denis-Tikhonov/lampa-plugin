@@ -1,22 +1,22 @@
 // =============================================================
 // AdultJS.js — Lampa Adult Plugin
-// Version  : 1.4.0
+// Version  : 1.5.0
 // Changed  :
 //   [1.0.0] Полный рефакторинг с ab2024.ru → GitHub Pages
 //   [1.0.0] Убраны: RCH, история, лицензионные проверки
 //   [1.0.0] Добавлены: localStorage-закладки, динамические парсеры
 //   [1.1.0] Версия плагина выводится в строке названия в настройках
-//   [1.1.0] Добавлена кнопка «Сброс плагина» в настройках:
-//           очищает кэш меню, кэш парсеров, закладки, настройки
+//   [1.1.0] Добавлена кнопка «Сброс плагина» в настройках
 //   [1.3.0] Добавлен централизованный AdultPlugin.networkRequest()
-//           Все парсеры (briz и др.) делегируют сетевые запросы сюда.
-//           Логика: native+Worker → Reguest → fetch
-//   [1.3.0] Обработка HTTP 403 от Worker: Noty «Домен не разрешён
-//           в Worker» + тихий fallback на прямой запрос
-//   [1.4.0] URL воркера — жёсткая константа WORKER_DEFAULT в коде.
-//           Поле ввода в Settings удалено. Менять URL через GitHub.
-//           Удалены: WORKER_STORAGE_KEY, Storage-логика воркера,
-//           строки локализации adult_worker_url/adult_worker_url_descr
+//   [1.3.0] Обработка HTTP 403 от Worker + тихий fallback
+//   [1.4.0] URL воркера — жёсткая константа WORKER_DEFAULT
+//   [1.5.0] BUGFIX: добавлен явный таймаут 9с для Lampa.Network.native
+//           (без него Android Lampa ждёт 30с перед переходом к Reguest)
+//   [1.5.0] Расширенное логирование сетевого слоя:
+//           - метка времени старта/финиша каждого уровня
+//           - длина полученного HTML
+//           - причина отказа каждого уровня (код + сообщение)
+//           - Noty с прогрессом: «Native...» / «Reguest...» / «Fetch...»
 // GitHub   : https://denis-tikhonov.github.io/plug/
 // =============================================================
 
@@ -30,7 +30,7 @@
   //         Менять здесь вручную, поле Settings удалено.
   // ----------------------------------------------------------
   var PLUGIN_ID      = 'adult_lampac';
-  var PLUGIN_VERSION = '1.4.0';
+  var PLUGIN_VERSION = '1.5.0';
   var GITHUB_BASE    = 'https://denis-tikhonov.github.io/plug/';
   var MENU_URL       = GITHUB_BASE + 'menu.json';
   var READY_FLAG     = 'plugin_' + PLUGIN_ID + '_ready';
@@ -38,7 +38,7 @@
   // [1.4.0] URL Cloudflare Worker — менять здесь, не в Settings.
   // Должен заканчиваться на '?url=' или '&url='.
   // Пример: 'https://zonaproxy.777b737.workers.dev/?url='
-  var WORKER_DEFAULT = 'https://zonaproxy.777b737.workers.dev/?url=';
+  var WORKER_DEFAULT = 'https://ВАШ-WORKER.ВАШ-АККАУНТ.workers.dev/?url=';
 
   // [1.0.0] Все ключи Lampa.Storage — для сброса
   var STORAGE_KEYS = [
@@ -165,157 +165,264 @@
   //   3. fetch() (последний резерв)
   // ----------------------------------------------------------
 
-  // [1.4.0] Получить URL воркера из константы WORKER_DEFAULT.
-  //         Storage и поле Settings удалены — только жёсткий код.
-  //         Авто-коррекция: добавляем '=' если отсутствует.
+  // ----------------------------------------------------------
+  // [1.5.0] Таймаут для Lampa.Network.native (мс).
+  // Lampa на Android ждёт ~30с по умолчанию (OkHttp).
+  // Снижаем до 9с — цепочка переходит к Reguest намного быстрее.
+  // ----------------------------------------------------------
+  var NATIVE_TIMEOUT_MS = 9000;
+
+  // [1.5.0] Метка времени для логов: «14:07:32.450»
+  function _ts() {
+    var d = new Date();
+    return d.getHours() + ':' +
+      ('0' + d.getMinutes()).slice(-2) + ':' +
+      ('0' + d.getSeconds()).slice(-2) + '.' +
+      ('00' + d.getMilliseconds()).slice(-3);
+  }
+
+  // [1.5.0] Noty-прогресс — короткое всплывающее сообщение
+  function _noty(msg, style) {
+    try { Lampa.Noty.show(msg, { time: 3000, style: style || '' }); } catch(e) {}
+  }
+
+  // [1.4.0] Получить URL воркера из WORKER_DEFAULT.
+  // [1.5.0] Авто-коррекция '=' + лог.
   function getWorkerUrl() {
     var url = WORKER_DEFAULT;
-
     if (!url) return '';
-
     if (url.charAt(url.length - 1) !== '=') {
-      console.warn('[AdultJS] WORKER_DEFAULT не заканчивается на "=", добавляю автоматически');
+      console.warn('[AdultJS][' + _ts() + '] WORKER_DEFAULT без "=" — добавляю');
       url = url + '=';
     }
-
     return url;
   }
 
-  // [1.3.0] Уровень 1: native + Worker
+  // ----------------------------------------------------------
+  // [1.3.0] Уровень 1: Lampa.Network.native + Cloudflare Worker
+  // [1.5.0] Явный таймаут через setTimeout (9с).
+  //         Флаг done защищает от двойного вызова колбэка
+  //         (таймаут + ответ одновременно).
+  //         Лог: START / OK(мс, байт) / FAIL(мс, код, msg) / TIMEOUT.
+  // ----------------------------------------------------------
   function _networkNative(url, success, error) {
     if (typeof Lampa === 'undefined' ||
         !Lampa.Network ||
         typeof Lampa.Network.native !== 'function') {
+      console.warn('[AdultJS][' + _ts() + '] native недоступен — пропуск');
       error('native_unavailable');
       return;
     }
 
     var workerUrl = getWorkerUrl();
-    if (!workerUrl) { error('worker_not_configured'); return; }
+    if (!workerUrl) {
+      console.warn('[AdultJS][' + _ts() + '] WORKER_DEFAULT пуст — пропуск');
+      error('worker_not_configured');
+      return;
+    }
 
     var fullPath = workerUrl + encodeURIComponent(url);
-    console.log('[AdultJS] native+Worker:', fullPath.substring(0, 120));
+    var t0   = Date.now();
+    var done = false;
+
+    console.log('[AdultJS][' + _ts() + '] native START → ' + fullPath.substring(0, 120));
+    _noty('[AdultJS] 🔄 Запрос через Worker...');
+
+    // [1.5.0] Свой таймаут — срабатывает если native молчит > 9с
+    var timerId = setTimeout(function () {
+      if (done) return;
+      done = true;
+      console.warn('[AdultJS][' + _ts() + '] native TIMEOUT ' + NATIVE_TIMEOUT_MS + 'мс → переход к Reguest');
+      _noty('[AdultJS] ⏱ Worker timeout → Reguest...', 'error');
+      error('native_timeout');
+    }, NATIVE_TIMEOUT_MS);
 
     try {
       Lampa.Network.native(
         fullPath,
         function (result) {
+          if (done) return;
+          done = true;
+          clearTimeout(timerId);
+
+          var elapsed = Date.now() - t0;
           var text = (typeof result === 'string') ? result : JSON.stringify(result);
 
-          // [1.3.0] Проверка 403 внутри тела ответа
+          // [1.3.0] 403 внутри тела JSON-ответа Worker
           if (text && text.indexOf('"status":403') !== -1) {
-            console.warn('[AdultJS] Worker вернул 403 в теле');
-            Lampa.Noty.show(Lampa.Lang.translate('adult_worker_403'), { time: 4000, style: 'error' });
-            Lampa.Noty.show(Lampa.Lang.translate('adult_worker_fallback'), { time: 3000 });
+            console.warn('[AdultJS][' + _ts() + '] native OK но Worker 403 в теле (' + elapsed + 'мс)');
+            _noty('[AdultJS] ⛔ Домен не разрешён в Worker (403)', 'error');
             error('worker_403');
             return;
           }
 
           if (text && text.length > 50) {
+            console.log('[AdultJS][' + _ts() + '] native OK ' + elapsed + 'мс, байт: ' + text.length);
             success(text);
           } else {
+            console.warn('[AdultJS][' + _ts() + '] native пустой ответ ' + elapsed + 'мс (' + text.length + ' байт)');
             error('native_empty_response');
           }
         },
         function (e) {
+          if (done) return;
+          done = true;
+          clearTimeout(timerId);
+
+          var elapsed = Date.now() - t0;
           var status  = (e && e.status)  ? e.status  : 0;
           var message = (e && e.message) ? e.message : String(e || 'unknown');
 
-          // [1.3.0] HTTP 403 — Worker-блокировка домена
+          console.warn('[AdultJS][' + _ts() + '] native FAIL ' + elapsed + 'мс' +
+            ' | status=' + status + ' | ' + message);
+
           if (status === 403 || message.indexOf('403') !== -1) {
-            console.warn('[AdultJS] Worker 403: домен не в белом списке');
-            Lampa.Noty.show(Lampa.Lang.translate('adult_worker_403'), { time: 4000, style: 'error' });
-            Lampa.Noty.show(Lampa.Lang.translate('adult_worker_fallback'), { time: 3000 });
+            console.warn('[AdultJS][' + _ts() + '] Worker 403: домен не в ALLOWED_TARGETS');
+            _noty('[AdultJS] ⛔ Домен не разрешён в Worker', 'error');
             error('worker_403');
             return;
           }
 
-          console.warn('[AdultJS] native ошибка:', message);
+          // [1.5.0] Типичная причина на Android TV: сайт заблокирован / DNS
+          if (message.indexOf('CANCEL') !== -1 || message.indexOf('stream was reset') !== -1) {
+            console.warn('[AdultJS][' + _ts() + '] → вероятно хост недоступен (DNS/firewall)');
+          }
+
+          _noty('[AdultJS] ⚠ Native: ' + message.substring(0, 40));
           error(e || 'native_error');
         },
         false,
         { headers: { 'X-Requested-With': 'XMLHttpRequest' } }
       );
     } catch (ex) {
-      console.error('[AdultJS] native исключение:', ex.message);
+      if (done) return;
+      done = true;
+      clearTimeout(timerId);
+      console.error('[AdultJS][' + _ts() + '] native исключение: ' + ex.message);
       error(ex.message);
     }
   }
 
-  // [1.3.0] Уровень 2: Lampa.Reguest
+  // ----------------------------------------------------------
+  // [1.3.0] Уровень 2: Lampa.Reguest прямой запрос
+  // [1.5.0] Метки времени + детальный лог отказа
+  // ----------------------------------------------------------
   function _networkReguest(url, success, error) {
-    console.log('[AdultJS] Reguest:', url.substring(0, 80));
+    var t0 = Date.now();
+    console.log('[AdultJS][' + _ts() + '] Reguest START → ' + url.substring(0, 80));
+    _noty('[AdultJS] 🔄 Reguest прямой запрос...');
+
     try {
       var net = new Lampa.Reguest();
       net.silent(
         url,
         function (data) {
+          var elapsed = Date.now() - t0;
           var text = (typeof data === 'string') ? data : '';
-          if (text.length > 50) success(text);
-          else error('reguest_empty');
+          console.log('[AdultJS][' + _ts() + '] Reguest OK ' + elapsed + 'мс, байт: ' + text.length);
+          if (text.length > 50) {
+            success(text);
+          } else {
+            console.warn('[AdultJS][' + _ts() + '] Reguest пустой ответ (' + text.length + ' байт)');
+            error('reguest_empty');
+          }
         },
-        function (e) { error(e || 'reguest_error'); },
+        function (e) {
+          var elapsed = Date.now() - t0;
+          var message = (e && e.message) ? e.message : String(e || 'unknown');
+          console.warn('[AdultJS][' + _ts() + '] Reguest FAIL ' + elapsed + 'мс | ' + message);
+          error(e || 'reguest_error');
+        },
         false,
-        { dataType: 'text', timeout: 12000 }
+        { dataType: 'text', timeout: 10000 }
       );
     } catch (ex) {
-      console.error('[AdultJS] Reguest исключение:', ex.message);
+      console.error('[AdultJS][' + _ts() + '] Reguest исключение: ' + ex.message);
       error(ex.message);
     }
   }
 
-  // [1.3.0] Уровень 3: fetch()
+  // ----------------------------------------------------------
+  // [1.3.0] Уровень 3: fetch() — последний резерв
+  // [1.5.0] Метки времени + HTTP-статус
+  // ----------------------------------------------------------
   function _networkFetch(url, success, error) {
-    if (typeof fetch === 'undefined') { error('fetch_unavailable'); return; }
-    console.log('[AdultJS] fetch:', url.substring(0, 80));
+    if (typeof fetch === 'undefined') {
+      console.warn('[AdultJS][' + _ts() + '] fetch недоступен в этом окружении');
+      error('fetch_unavailable');
+      return;
+    }
+    var t0 = Date.now();
+    console.log('[AdultJS][' + _ts() + '] fetch START → ' + url.substring(0, 80));
+    _noty('[AdultJS] 🔄 Fetch последний резерв...');
+
     fetch(url, { method: 'GET' })
       .then(function (r) {
+        console.log('[AdultJS][' + _ts() + '] fetch HTTP ' + r.status + ' ' + (Date.now()-t0) + 'мс');
         if (!r.ok) throw new Error('HTTP ' + r.status);
         return r.text();
       })
-      .then(function (text) { success(text); })
+      .then(function (text) {
+        console.log('[AdultJS][' + _ts() + '] fetch OK ' + (Date.now()-t0) + 'мс, байт: ' + text.length);
+        success(text);
+      })
       .catch(function (e) {
-        console.error('[AdultJS] fetch ошибка:', e.message || e);
+        console.error('[AdultJS][' + _ts() + '] fetch FAIL ' + (Date.now()-t0) + 'мс | ' + (e.message || e));
         error(e);
       });
   }
 
-  // [1.3.0] Публичная точка входа — доступна как window.AdultPlugin.networkRequest
+  // ----------------------------------------------------------
+  // [1.3.0] Публичная точка входа: window.AdultPlugin.networkRequest
+  // [1.5.0] Сводный лог итога: все три причины отказа в одной строке
+  // ----------------------------------------------------------
   function networkRequest(url, success, error) {
-    console.log('[AdultJS] networkRequest →', url.substring(0, 80));
+    console.log('[AdultJS][' + _ts() + '] networkRequest → ' + url.substring(0, 80));
 
     _networkNative(url,
-      function (text) { success(text); },
-      function (e) {
-        // [1.3.0] worker_403 или worker_not_configured → тихий fallback
-        if (e === 'worker_403' || e === 'worker_not_configured' || e === 'native_unavailable') {
-          console.warn('[AdultJS] Переход к Reguest (причина: ' + e + ')');
-        } else {
-          console.warn('[AdultJS] native не сработал (' + e + '), Reguest...');
-        }
+      function (text) {
+        console.log('[AdultJS][' + _ts() + '] ✅ успех: native+Worker');
+        success(text);
+      },
+      function (e1) {
+        var r1 = String(e1 && e1.message ? e1.message : e1);
+        console.warn('[AdultJS][' + _ts() + '] native провал (' + r1 + ') → Reguest');
 
         _networkReguest(url,
-          function (text) { success(text); },
-          function () {
-            console.warn('[AdultJS] Reguest не сработал, fetch...');
-            _networkFetch(url, success, function (fe) {
-              console.error('[AdultJS] Все методы исчерпаны для:', url);
-              Lampa.Noty.show('[AdultJS] ⛔ Все методы запроса исчерпаны', { time: 4000, style: 'error' });
-              error(fe || 'all_methods_failed');
-            });
+          function (text) {
+            console.log('[AdultJS][' + _ts() + '] ✅ успех: Reguest');
+            success(text);
+          },
+          function (e2) {
+            var r2 = String(e2 && e2.message ? e2.message : e2);
+            console.warn('[AdultJS][' + _ts() + '] Reguest провал (' + r2 + ') → fetch');
+
+            _networkFetch(url,
+              function (text) {
+                console.log('[AdultJS][' + _ts() + '] ✅ успех: fetch');
+                success(text);
+              },
+              function (e3) {
+                var r3 = String(e3 && e3.message ? e3.message : e3);
+                // [1.5.0] Итоговая строка с причиной каждого уровня
+                console.error('[AdultJS][' + _ts() + '] ❌ ВСЕ МЕТОДЫ ПРОВАЛЕНЫ для: ' + url);
+                console.error('[AdultJS][' + _ts() + '] native=' + r1 + ' | Reguest=' + r2 + ' | fetch=' + r3);
+                _noty('[AdultJS] ⛔ Сайт недоступен (все методы исчерпаны)', 'error');
+                error(e3 || 'all_methods_failed');
+              }
+            );
           }
         );
       }
     );
   }
 
-  // Публичный API — регистрация парсеров + сетевой метод
+  // Публичный API
   window.AdultPlugin = window.AdultPlugin || {};
   window.AdultPlugin.registerParser = function (name, parserObj) {
     Parsers[name] = parserObj;
     console.log('[AdultJS] Parser registered:', name);
   };
-  // [1.3.0] Централизованный метод для использования парсерами
   window.AdultPlugin.networkRequest = networkRequest;
 
   // ----------------------------------------------------------
