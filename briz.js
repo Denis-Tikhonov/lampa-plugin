@@ -44,7 +44,7 @@
   //
   // Приоритет выбора: AdultPlugin.workerUrl → константа ниже
   // ----------------------------------------------------------
-  var WORKER_DEFAULT = 'https://zonaproxy.777b737.workers.dev/?url=';
+  var WORKER_DEFAULT = 'https://ВАШ-WORKER.ВАШ-АККАУНТ.workers.dev/?url=';
 
   // ----------------------------------------------------------
   // [1.3.0] Нормализация URL воркера:
@@ -196,7 +196,7 @@
     }
 
     var workerUrl = getWorkerUrl();
-    var fullPath = workerUrl + encodeURIComponent(url.replace(/\/?$/, '/'));
+    var fullPath  = workerUrl + encodeURIComponent(url);
 
     log('_nativeRequest → запрос через Worker:', fullPath.substring(0, 120));
     noty('Native → Worker: ' + url.substring(0, 50) + '...');
@@ -404,19 +404,31 @@
 
   function buildUrl(sort, cat, search, page) {
     page = page || 1;
-    var result;
+    var url;
 
+    // поиск
     if (search) {
-      result = HOST + '/search/' + encodeURIComponent(search) + '/page' + page + '/';
-    } else if (cat) {
-      result = HOST + '/' + cat + '/page' + page + '/';
-    } else {
-      var sortObj = arrayFind(SORTS, function (s) { return s.val === sort; }) || SORTS[0];
-      result = HOST + '/' + sortObj.urlTpl.replace('{page}', page);
+      url = page > 1
+        ? HOST + '/search/' + encodeURIComponent(search) + '/page/' + page + '/'
+        : HOST + '/search/' + encodeURIComponent(search) + '/';
+    }
+    // категория
+    else if (cat) {
+      url = page > 1
+        ? HOST + '/' + cat + '/page/' + page + '/'
+        : HOST + '/' + cat + '/';
+    }
+    // главная / сортировка
+    else {
+      if (page === 1) {
+        url = HOST + '/';
+      } else {
+        url = HOST + '/page/' + page + '/';
+      }
     }
 
-    log('buildUrl →', 'sort=' + sort + ' cat=' + cat + ' search=' + search + ' page=' + page + ' → ' + result);
-    return result;
+    log('buildUrl →', 'sort=' + sort + ' cat=' + cat + ' search=' + search + ' page=' + page + ' → ' + url);
+    return url;
   }
 
   // ----------------------------------------------------------
@@ -791,16 +803,38 @@
 
     main: function (params, success, error) {
       log('main() → вызван:', safeParams(params));
-      noty('Загрузка главной страницы...');
 
-      httpGet(buildUrl('', '', '', 1), function (html) {
+      var page = params.page || 1;
+      noty('Загрузка страницы ' + page);
+
+      var url = buildUrl('', '', '', page);
+
+      httpGet(url, function (html) {
         var results = parsePlaylist(html);
-        if (!results.length) {
-          err('main() → нет карточек');
+
+        if (!results || !results.length) {
+          err('main() → карточки не найдены');
           notyError('Главная: карточки не найдены');
           error('PornoBriz: нет карточек');
           return;
         }
+
+        log('main() → найдено карточек:', results.length);
+
+        success({
+          results: results,
+          page: page,
+          total_pages: page + 1,
+          collection: true,
+          menu: buildMenu(HOST)
+        });
+
+      }, function (e) {
+        err('main() → ошибка загрузки:', e);
+        notyError('Главная: ошибка загрузки');
+        error(e);
+      });
+    }
         log('main() → успех, карточек:', results.length);
         notySuccess('Главная: ' + results.length + ' видео');
         success({ results: results, collection: true, total_pages: 30, menu: buildMenu(HOST) });
