@@ -1,13 +1,9 @@
 // =============================================================
 // xv-ru.js — Парсер xv-ru.com для AdultJS / AdultPlugin (Lampa)
-// Version  : 1.1.0
+// Version  : 1.1.1
 // Changed  :
-//   [1.1.0] ИСПРАВЛЕНО: XPath захватывал вложенные .thumb → дублирование
-//           ИСПРАВЛЕНО: parseState не обрабатывал search= от AdultJS фильтра
-//           ИСПРАВЛЕНО: _extractCard возвращал blank.gif вместо реального picture
-//           ИСПРАВЛЕНО: дедупликация карточек по href через seen{}
-//           ИСПРАВЛЕНО: CSS стратегия пропускает вложенные .thumb
-//           ИСПРАВЛЕНО: buildUrl корректно строит URL для поиска и сортировки
+//   [1.1.1] ДИАГНОСТИКА: логи внутри _extractCard (первые 3 элемента)
+//           ДИАГНОСТИКА: innerHTML первого .thumb в parsePlaylist
 // =============================================================
 
 (function () {
@@ -17,9 +13,6 @@
   var NAME = 'xv-ru';
   var TAG  = '[xv-ru]';
 
-  // ----------------------------------------------------------
-  // Worker URL — замените на URL вашего задеплоенного воркера
-  // ----------------------------------------------------------
   var WORKER_DEFAULT = 'https://ВАШ-WORKER.ВАШ-АККАУНТ.workers.dev/?url=';
 
   function getWorkerUrl() {
@@ -31,7 +24,7 @@
   }
 
   // ----------------------------------------------------------
-  // Полифиллы (WebOS 3, Tizen 2)
+  // Полифиллы
   // ----------------------------------------------------------
   if (!Array.prototype.find) {
     Array.prototype.find = function (fn) {
@@ -58,9 +51,9 @@
     for (var i = 0; i < arr.length; i++) if (fn(arr[i], i)) return arr[i];
   }
 
-  function log(msg) { console.log(TAG, msg); }
+  function log(msg)  { console.log(TAG, msg); }
   function warn(msg) { console.warn(TAG, msg); }
-  function err(msg) { console.error(TAG, msg); }
+  function err(msg)  { console.error(TAG, msg); }
 
   // ----------------------------------------------------------
   // Сетевой слой
@@ -68,13 +61,11 @@
   function httpGet(url, success, failure) {
     log('httpGet -> ' + url);
 
-    // Приоритет 0: централизованный AdultJS 1.5.0
     if (window.AdultPlugin && typeof window.AdultPlugin.networkRequest === 'function') {
       window.AdultPlugin.networkRequest(url, success, failure, { type: 'html' });
       return;
     }
 
-    // Приоритет 1: Lampa.Network.native + Worker
     if (typeof Lampa !== 'undefined' &&
         Lampa.Network &&
         typeof Lampa.Network.native === 'function') {
@@ -143,10 +134,6 @@
 
   // ----------------------------------------------------------
   // parseState
-  //
-  // ИСПРАВЛЕНИЕ [1.1.0]:
-  //   AdultJS передаёт параметр поиска как search= (не k=).
-  //   Теперь обрабатываем оба варианта: search= и k=
   // ----------------------------------------------------------
   function parseState(url) {
     var sort = '', search = '';
@@ -155,12 +142,10 @@
       return { sort: sort, search: search };
     }
 
-    // ИСПРАВЛЕНИЕ: ловим search= (от AdultJS фильтра) и k= (нативный xvideos)
     var kMatch = url.match(/[?&]search=([^&]+)/) || url.match(/[?&]k=([^&]+)/);
     if (kMatch && kMatch[1]) {
       search = decodeURIComponent(kMatch[1].replace(/\+/g, ' '));
     } else {
-      // Определяем сортировку по пути URL
       var path = url.replace(HOST, '').replace(/^\//, '').replace(/\/\d+\/?$/, '');
       for (var i = 0; i < SORTS.length; i++) {
         if (path === SORTS[i].urlPath || path.indexOf(SORTS[i].urlPath + '/') === 0) {
@@ -181,13 +166,11 @@
     page = parseInt(page, 10) || 1;
 
     if (search) {
-      // xvideos: страница 1 → p=0 (или без p), страница 2 → p=1
       var offset = page > 1 ? '&p=' + (page - 1) : '';
       return HOST + '/?k=' + encodeURIComponent(search) + offset;
     }
 
     if (!sort) {
-      // Главная — только первая страница без параметров
       return page <= 1 ? HOST + '/' : HOST + '/new/' + page;
     }
 
@@ -196,16 +179,135 @@
   }
 
   // ----------------------------------------------------------
+  // _getImgSrc
+  // ----------------------------------------------------------
+  function _getImgSrc(img) {
+    if (!img) return '';
+    var candidates = [
+      img.getAttribute('data-src'),
+      img.getAttribute('data-original'),
+      img.getAttribute('data-thumb'),
+      img.getAttribute('data-xvideos-src'),
+      img.getAttribute('src'),
+    ];
+    for (var i = 0; i < candidates.length; i++) {
+      var v = candidates[i];
+      if (!v) continue;
+      if (v.indexOf('blank.gif')  !== -1) continue;
+      if (v.indexOf('data:image') === 0)  continue;
+      if (v.indexOf('spacer.gif') !== -1) continue;
+      if (v.length < 10) continue;
+      return v;
+    }
+    return '';
+  }
+
+  // ----------------------------------------------------------
+  // _extractCard
+  //
+  // ПРАВКА 1 [1.1.1]: добавлена диагностика для первых 3 элементов.
+  //   Логируем: есть ли aEl, значение href, значение name,
+  //   и на каком именно return null вылетаем.
+  // ----------------------------------------------------------
+  var _extractCallCount = 0; // счётчик вызовов для ограничения лога
+
+  function _extractCard(el) {
+    _extractCallCount++;
+    var doLog = _extractCallCount <= 3; // логируем только первые 3
+
+    if (doLog) {
+      warn('_extractCard #' + _extractCallCount + ' -> el.className: ' + (el.className || ''));
+      warn('_extractCard #' + _extractCallCount + ' -> el.innerHTML (первые 400): ' + el.innerHTML.substring(0, 400));
+    }
+
+    // Ссылка на видео
+    var aEl = el.querySelector('a[href*="/video"]');
+    if (!aEl) aEl = el.querySelector('a[href]');
+
+    if (doLog) {
+      warn('_extractCard #' + _extractCallCount + ' -> aEl: ' + (aEl ? aEl.outerHTML.substring(0, 150) : 'NULL'));
+    }
+
+    if (!aEl) {
+      if (doLog) warn('_extractCard #' + _extractCallCount + ' -> RETURN NULL: aEl не найден');
+      return null;
+    }
+
+    var href = aEl.getAttribute('href') || '';
+
+    if (doLog) {
+      warn('_extractCard #' + _extractCallCount + ' -> href: ' + href);
+    }
+
+    if (!href || href.indexOf('/video') === -1) {
+      if (doLog) warn('_extractCard #' + _extractCallCount + ' -> RETURN NULL: href не содержит /video. href=' + href);
+      return null;
+    }
+
+    if (href.indexOf('http') !== 0) href = HOST + href;
+
+    // Название
+    var name = '';
+    var titleEl = el.querySelector('p.title a') || el.querySelector('p.title');
+    if (titleEl) name = (titleEl.getAttribute('title') || titleEl.textContent || '').trim();
+    if (!name) name = (aEl.getAttribute('title') || '').trim();
+    if (!name) {
+      var anyTitle = el.querySelector('[title]');
+      if (anyTitle) name = anyTitle.getAttribute('title').trim();
+    }
+
+    if (doLog) {
+      warn('_extractCard #' + _extractCallCount + ' -> titleEl: ' + (titleEl ? titleEl.outerHTML.substring(0, 100) : 'NULL'));
+      warn('_extractCard #' + _extractCallCount + ' -> name итог: "' + name + '"');
+    }
+
+    if (!name || name.length < 3) {
+      if (doLog) warn('_extractCard #' + _extractCallCount + ' -> RETURN NULL: name пустой или короткий. name="' + name + '"');
+      return null;
+    }
+
+    // Картинка
+    var imgEl = aEl.querySelector('img') || el.querySelector('img');
+    var picture = _getImgSrc(imgEl);
+
+    if (doLog) {
+      warn('_extractCard #' + _extractCallCount + ' -> imgEl: ' + (imgEl ? imgEl.outerHTML.substring(0, 150) : 'NULL'));
+      warn('_extractCard #' + _extractCallCount + ' -> picture: ' + picture);
+    }
+
+    // Длительность
+    var durEl = el.querySelector('.duration, span.duration, time, .dur');
+    var time  = durEl ? (durEl.textContent || '').trim() : '';
+
+    if (doLog) {
+      warn('_extractCard #' + _extractCallCount + ' -> УСПЕХ: name="' + name + '" href=' + href);
+    }
+
+    return {
+      name:    name,
+      video:   href,
+      picture: picture,
+      preview: null,
+      time:    time,
+      quality: 'HD',
+      json:    true,
+      related: true,
+      source:  NAME,
+    };
+  }
+
+  // ----------------------------------------------------------
   // parsePlaylist
   //
-  // ИСПРАВЛЕНИЕ [1.1.0]:
-  //   Добавлена дедупликация seen{} — любой дубль по href игнорируется.
-  //   XPath использует ancestor-check чтобы брать только верхний уровень .thumb.
-  //   CSS стратегия пропускает вложенные .thumb через parentElement.classList.
+  // ПРАВКА 2 [1.1.1]: выводим innerHTML первого найденного
+  //   .thumb элемента до начала извлечения карточек.
   // ----------------------------------------------------------
   function parsePlaylist(html) {
     if (!html) { warn('parsePlaylist -> html пустой'); return []; }
     log('parsePlaylist -> длина HTML: ' + html.length);
+
+    // Сбрасываем счётчик диагностики для каждого нового парсинга
+    _extractCallCount = 0;
 
     var doc;
     try {
@@ -216,13 +318,33 @@
       return [];
     }
 
-    var cards = [];
-    var seen  = {}; // ИСПРАВЛЕНИЕ: ключ = href, исключаем дубли
+    // ----------------------------------------------------------
+    // ПРАВКА 2: Вывод innerHTML первого .thumb ДО любой стратегии
+    // ----------------------------------------------------------
+    var firstThumb = doc.querySelector('.thumb');
+    if (firstThumb) {
+      warn('parsePlaylist -> ДИАГНОСТИКА первый .thumb innerHTML:\n' + firstThumb.innerHTML);
+      warn('parsePlaylist -> ДИАГНОСТИКА первый .thumb className: ' + firstThumb.className);
+      warn('parsePlaylist -> ДИАГНОСТИКА первый .thumb parentElement.className: ' + (firstThumb.parentElement ? firstThumb.parentElement.className : 'нет'));
+    } else {
+      warn('parsePlaylist -> ДИАГНОСТИКА: .thumb не найден через querySelector');
+    }
 
-    // --- Стратегия 1: XPath (только верхний уровень .thumb) ---
+    // Дополнительно — первый a[href*=/video]
+    var firstVideoLink = doc.querySelector('a[href*="/video"]');
+    if (firstVideoLink) {
+      warn('parsePlaylist -> ДИАГНОСТИКА первый a[href*=video] href: ' + firstVideoLink.getAttribute('href'));
+      warn('parsePlaylist -> ДИАГНОСТИКА первый a[href*=video] outerHTML: ' + firstVideoLink.outerHTML.substring(0, 300));
+      warn('parsePlaylist -> ДИАГНОСТИКА первый a[href*=video] parentElement.className: ' + (firstVideoLink.parentElement ? firstVideoLink.parentElement.className : 'нет'));
+    }
+    // ----------------------------------------------------------
+
+    var cards = [];
+    var seen  = {};
+
+    // --- Стратегия 1: XPath ---
     log('parsePlaylist -> Стратегия 1: XPath...');
     try {
-      // ИСПРАВЛЕНИЕ: not(ancestor::div[contains(@class,"thumb")]) — исключаем вложенные
       var xp = "//div[contains(concat(' ',normalize-space(@class),' '),' thumb ') " +
                "and not(ancestor::div[contains(concat(' ',normalize-space(@class),' '),' thumb ')]) " +
                "and .//a[contains(@href,'/video')]]";
@@ -242,18 +364,20 @@
       warn('parsePlaylist -> XPath ошибка: ' + e.message);
     }
 
-    // --- Стратегия 2: CSS querySelectorAll ---
+    // --- Стратегия 2: CSS ---
     if (!cards.length) {
-      log('parsePlaylist -> Стратегия 2: CSS div.thumb...');
-      var selectors = ['.thumb', '.thumbs .thumb', '.mozaique .thumb', '.video-thumb', '.video-item'];
+      log('parsePlaylist -> Стратегия 2: CSS...');
+      var selectors = ['.mozaique .thumb', '.thumb', '.thumbs .thumb', '.video-thumb', '.video-item'];
 
       for (var s = 0; s < selectors.length; s++) {
         var els = doc.querySelectorAll(selectors[s]);
         if (!els.length) continue;
         log('parsePlaylist -> CSS "' + selectors[s] + '" найдено: ' + els.length);
 
+        // ПРАВКА 2: дополнительно — innerHTML первого элемента для каждого селектора
+        warn('parsePlaylist -> CSS "' + selectors[s] + '" первый элемент innerHTML: ' + els[0].innerHTML.substring(0, 300));
+
         forEachNode(els, function (el) {
-          // ИСПРАВЛЕНИЕ: пропускаем вложенные .thumb
           var parent = el.parentElement;
           if (parent && parent.className && parent.className.indexOf('thumb') !== -1) return;
 
@@ -269,9 +393,9 @@
       log('parsePlaylist -> CSS извлечено карточек: ' + cards.length);
     }
 
-    // --- Стратегия 3: все a[href*=/video] содержащие img ---
+    // --- Стратегия 3: a[href*=video] img ---
     if (!cards.length) {
-      log('parsePlaylist -> Стратегия 3: a[href*=video] img...');
+      log('parsePlaylist -> Стратегия 3: a[href*=video]...');
       var links = doc.querySelectorAll('a[href*="/video"]');
 
       forEachNode(links, function (a) {
@@ -297,9 +421,9 @@
       log('parsePlaylist -> Стратегия 3 извлечено: ' + cards.length);
     }
 
+    // --- Диагностика если ничего не найдено ---
     if (!cards.length) {
       warn('parsePlaylist -> НИЧЕГО НЕ НАЙДЕНО');
-      // Диагностика
       warn('parsePlaylist -> div[class*=thumb]: ' + doc.querySelectorAll('div[class*="thumb"]').length);
       warn('parsePlaylist -> a[href*=video]: '    + doc.querySelectorAll('a[href*="/video"]').length);
       warn('parsePlaylist -> body (первые 300 символов): ' + (doc.body ? doc.body.innerHTML.substring(0, 300) : 'нет body'));
@@ -312,80 +436,7 @@
   }
 
   // ----------------------------------------------------------
-  // _getImgSrc — получение реального URL картинки
-  //
-  // ИСПРАВЛЕНИЕ [1.1.0]:
-  //   Фильтруем blank.gif и data:image placeholder,
-  //   которые xvideos подставляет до lazy-load.
-  // ----------------------------------------------------------
-  function _getImgSrc(img) {
-    if (!img) return '';
-    var candidates = [
-      img.getAttribute('data-src'),
-      img.getAttribute('data-original'),
-      img.getAttribute('data-thumb'),
-      img.getAttribute('data-xvideos-src'),
-      img.getAttribute('src'),
-    ];
-    for (var i = 0; i < candidates.length; i++) {
-      var v = candidates[i];
-      if (!v) continue;
-      if (v.indexOf('blank.gif')  !== -1) continue; // placeholder xvideos
-      if (v.indexOf('data:image') === 0)  continue; // base64 placeholder
-      if (v.indexOf('spacer.gif') !== -1) continue; // другой placeholder
-      if (v.length < 10) continue;
-      return v;
-    }
-    return '';
-  }
-
-  // ----------------------------------------------------------
-  // _extractCard
-  // ----------------------------------------------------------
-  function _extractCard(el) {
-    // Ссылка на видео
-    var aEl = el.querySelector('a[href*="/video"]');
-    if (!aEl) aEl = el.querySelector('a[href]');
-    if (!aEl) return null;
-
-    var href = aEl.getAttribute('href') || '';
-    if (!href || href.indexOf('/video') === -1) return null;
-    if (href.indexOf('http') !== 0) href = HOST + href;
-
-    // Название
-    var name = '';
-    var titleEl = el.querySelector('p.title a') || el.querySelector('p.title');
-    if (titleEl) name = (titleEl.getAttribute('title') || titleEl.textContent || '').trim();
-    if (!name) name = (aEl.getAttribute('title') || '').trim();
-    if (!name) {
-      var anyTitle = el.querySelector('[title]');
-      if (anyTitle) name = anyTitle.getAttribute('title').trim();
-    }
-    if (!name || name.length < 3) return null;
-
-    // Картинка — сначала ищем внутри ссылки, потом по всему элементу
-    var imgEl = aEl.querySelector('img') || el.querySelector('img');
-    var picture = _getImgSrc(imgEl);
-
-    // Длительность
-    var durEl = el.querySelector('.duration, span.duration, time, .dur');
-    var time  = durEl ? (durEl.textContent || '').trim() : '';
-
-    return {
-      name:    name,
-      video:   href,
-      picture: picture,
-      preview: null,
-      time:    time,
-      quality: 'HD',
-      json:    true,
-      related: true,
-      source:  NAME,
-    };
-  }
-
-  // ----------------------------------------------------------
-  // getStreamLinks — прямые ссылки на видео
+  // getStreamLinks
   // ----------------------------------------------------------
   function getStreamLinks(url, success, failure) {
     log('getStreamLinks -> ' + url);
@@ -393,7 +444,6 @@
       log('getStreamLinks -> HTML длина: ' + html.length);
       var q = {};
 
-      // html5player (основной паттерн xvideos)
       var mLow  = html.match(/html5player\.setVideoUrlLow$['"]([^'"]+)['"]$/);
       var mHigh = html.match(/html5player\.setVideoUrlHigh$['"]([^'"]+)['"]$/);
       var mHLS  = html.match(/html5player\.setVideoHLS$['"]([^'"]+)['"]$/);
@@ -401,7 +451,6 @@
       if (mHigh && mHigh[1]) { q['720p'] = mHigh[1]; log('getStreamLinks -> high: ' + mHigh[1].substring(0, 80)); }
       if (mHLS  && mHLS[1])  { q['HLS']  = mHLS[1];  log('getStreamLinks -> HLS: '  + mHLS[1].substring(0, 80)); }
 
-      // JSON формат
       if (!Object.keys(q).length) {
         var mL2 = html.match(/"url_low"\s*:\s*"([^"]+)"/);
         var mH2 = html.match(/"url_high"\s*:\s*"([^"]+)"/);
@@ -411,7 +460,6 @@
         if (mS2 && mS2[1]) q['HLS']  = mS2[1];
       }
 
-      // .mp4 fallback
       if (!Object.keys(q).length) {
         var reMp4 = /["'](https?:\/\/[^"'\s]+\.mp4[^"'\s]*)/g;
         var m4, idx4 = 0;
@@ -421,7 +469,6 @@
         }
       }
 
-      // .m3u8 fallback
       if (!Object.keys(q).length) {
         var mM = html.match(/["'](https?:\/\/[^"'\s]+\.m3u8[^"'\s]*)/);
         if (mM && mM[1]) q['HLS'] = mM[1];
@@ -437,9 +484,6 @@
       }
 
       log('getStreamLinks -> качеств: ' + keys.length);
-      for (var k = 0; k < keys.length; k++) {
-        log('  ' + keys[k] + ' -> ' + q[keys[k]].substring(0, 80));
-      }
       success({ qualitys: q });
 
     }, function (e) {
@@ -449,7 +493,7 @@
   }
 
   // ----------------------------------------------------------
-  // Меню фильтра
+  // Меню
   // ----------------------------------------------------------
   function buildMenu(url) {
     var state   = parseState(url);
@@ -470,7 +514,7 @@
   }
 
   // ----------------------------------------------------------
-  // Публичный интерфейс парсера
+  // Публичный интерфейс
   // ----------------------------------------------------------
   var Parser = {
 
@@ -548,12 +592,12 @@
   };
 
   // ----------------------------------------------------------
-  // Регистрация в AdultPlugin
+  // Регистрация
   // ----------------------------------------------------------
   function tryRegister() {
     if (window.AdultPlugin && typeof window.AdultPlugin.registerParser === 'function') {
       window.AdultPlugin.registerParser(NAME, Parser);
-      log('v1.1.0 зарегистрирован');
+      log('v1.1.1 зарегистрирован');
       return true;
     }
     return false;
