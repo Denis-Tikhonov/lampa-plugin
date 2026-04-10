@@ -196,7 +196,7 @@
     }
 
     var workerUrl = getWorkerUrl();
-    var fullPath  = workerUrl + encodeURIComponent(url);
+    var fullPath = workerUrl + encodeURIComponent(url.replace(/\/?$/, '/'));
 
     log('_nativeRequest → запрос через Worker:', fullPath.substring(0, 120));
     noty('Native → Worker: ' + url.substring(0, 50) + '...');
