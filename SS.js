@@ -1,6 +1,6 @@
 // =============================================================
 // AdultJS.js — Lampa Adult Plugin
-// Version  : 1.3.0
+// Version  : 1.4.0
 // Changed  :
 //   [1.0.0] Полный рефакторинг с ab2024.ru → GitHub Pages
 //   [1.0.0] Убраны: RCH, история, лицензионные проверки
@@ -13,11 +13,10 @@
 //           Логика: native+Worker → Reguest → fetch
 //   [1.3.0] Обработка HTTP 403 от Worker: Noty «Домен не разрешён
 //           в Worker» + тихий fallback на прямой запрос
-//   [1.3.0] Авто-проверка workerUrl: если URL не заканчивается на '=',
-//           символ добавляется автоматически
-//   [1.3.0] Добавлена настройка «URL Cloudflare Worker» в Settings
-//           (поле ввода текста в разделе Клубничка)
-//   [1.3.0] Источник 'briz' добавлен в STORAGE_KEYS для корректного сброса
+//   [1.4.0] URL воркера — жёсткая константа WORKER_DEFAULT в коде.
+//           Поле ввода в Settings удалено. Менять URL через GitHub.
+//           Удалены: WORKER_STORAGE_KEY, Storage-логика воркера,
+//           строки локализации adult_worker_url/adult_worker_url_descr
 // GitHub   : https://denis-tikhonov.github.io/plug/
 // =============================================================
 
@@ -27,22 +26,26 @@
   // ----------------------------------------------------------
   // [1.0.0] КОНСТАНТЫ
   // [1.1.0] PLUGIN_VERSION — отображается в настройках
-  // [1.3.0] WORKER_STORAGE_KEY — ключ для хранения URL воркера
+  // [1.4.0] WORKER_DEFAULT — жёстко вшитый URL воркера.
+  //         Менять здесь вручную, поле Settings удалено.
   // ----------------------------------------------------------
-  var PLUGIN_ID          = 'adult_lampac';
-  var PLUGIN_VERSION     = '1.3.0';
-  var GITHUB_BASE        = 'https://denis-tikhonov.github.io/plug/';
-  var MENU_URL           = GITHUB_BASE + 'menu.json';
-  var READY_FLAG         = 'plugin_' + PLUGIN_ID + '_ready';
-  var WORKER_STORAGE_KEY = 'adult_worker_url';
+  var PLUGIN_ID      = 'adult_lampac';
+  var PLUGIN_VERSION = '1.4.0';
+  var GITHUB_BASE    = 'https://denis-tikhonov.github.io/plug/';
+  var MENU_URL       = GITHUB_BASE + 'menu.json';
+  var READY_FLAG     = 'plugin_' + PLUGIN_ID + '_ready';
 
-  // [1.0.0] / [1.3.0] Все ключи Lampa.Storage — для сброса
+  // [1.4.0] URL Cloudflare Worker — менять здесь, не в Settings.
+  // Должен заканчиваться на '?url=' или '&url='.
+  // Пример: 'https://zonaproxy.777b737.workers.dev/?url='
+  var WORKER_DEFAULT = 'https://ВАШ-WORKER.ВАШ-АККАУНТ.workers.dev/?url=';
+
+  // [1.0.0] Все ключи Lampa.Storage — для сброса
   var STORAGE_KEYS = [
     'adult_bookmarks_list',
     'sisi_preview',
     'sisi_unic_id',
     'lampac_unic_id',
-    WORKER_STORAGE_KEY,   // [1.3.0] URL воркера
   ];
 
   // ----------------------------------------------------------
@@ -65,10 +68,8 @@
     adult_reset_done:    { ru: 'Плагин сброшен до начальных установок',   en: 'Plugin reset to defaults'            },
     adult_reset_confirm: { ru: 'Сбросить плагин? Закладки будут удалены!', en: 'Reset plugin? Bookmarks will be deleted!' },
     // [1.3.0]
-    adult_worker_url:       { ru: 'URL Cloudflare Worker',              en: 'Cloudflare Worker URL'           },
-    adult_worker_url_descr: { ru: 'Адрес воркера для обхода CORS. Пример: https://x.y.workers.dev/?url=', en: 'Worker URL for CORS bypass. Example: https://x.y.workers.dev/?url=' },
-    adult_worker_403:       { ru: 'Домен не разрешён в Worker',         en: 'Domain not allowed in Worker'   },
-    adult_worker_fallback:  { ru: 'Worker заблокировал домен, прямой запрос...', en: 'Worker blocked domain, direct request...' },
+    adult_worker_403:      { ru: 'Домен не разрешён в Worker',                  en: 'Domain not allowed in Worker'         },
+    adult_worker_fallback: { ru: 'Worker заблокировал домен, прямой запрос...', en: 'Worker blocked domain, direct request...' },
   });
 
   // ----------------------------------------------------------
@@ -122,9 +123,6 @@
 
     STORAGE_KEYS.forEach(function (key) { Lampa.Storage.set(key, null); });
 
-    // [1.3.0] Сбрасываем workerUrl в публичном API
-    if (window.AdultPlugin) window.AdultPlugin.workerUrl = '';
-
     window.adult_settings_ready = false;
     Lampa.Noty.show(Lampa.Lang.translate('adult_reset_done'), { time: 4000 });
     console.log('[AdultJS] Plugin reset to defaults, version:', PLUGIN_VERSION);
@@ -167,16 +165,16 @@
   //   3. fetch() (последний резерв)
   // ----------------------------------------------------------
 
-  // [1.3.0] Получить и нормализовать URL воркера
+  // [1.4.0] Получить URL воркера из константы WORKER_DEFAULT.
+  //         Storage и поле Settings удалены — только жёсткий код.
+  //         Авто-коррекция: добавляем '=' если отсутствует.
   function getWorkerUrl() {
-    var saved = Lampa.Storage.get(WORKER_STORAGE_KEY, '');
-    var url   = saved || (window.AdultPlugin && window.AdultPlugin.workerUrl) || '';
+    var url = WORKER_DEFAULT;
 
     if (!url) return '';
 
-    // Авто-коррекция: добавляем '=' если отсутствует
     if (url.charAt(url.length - 1) !== '=') {
-      console.warn('[AdultJS] workerUrl не заканчивается на "=", добавляю автоматически');
+      console.warn('[AdultJS] WORKER_DEFAULT не заканчивается на "=", добавляю автоматически');
       url = url + '=';
     }
 
@@ -319,8 +317,6 @@
   };
   // [1.3.0] Централизованный метод для использования парсерами
   window.AdultPlugin.networkRequest = networkRequest;
-  // [1.3.0] workerUrl инициализируем из Storage при старте
-  window.AdultPlugin.workerUrl = Lampa.Storage.get(WORKER_STORAGE_KEY, '') || '';
 
   // ----------------------------------------------------------
   // [1.0.0] УТИЛИТЫ
@@ -826,73 +822,6 @@
       onRender:  function () {},
     });
 
-    // ----------------------------------------------------------
-    // [1.3.0] Поле ввода URL Cloudflare Worker
-    // Тип 'input' — стандартный однострочный ввод в Lampa Settings.
-    // onRender добавляет обработчик: при нажатии OK открывается
-    // Lampa.Input.edit() и сохраняет значение в Storage.
-    // ----------------------------------------------------------
-    Lampa.SettingsApi.addParam({
-      component: PLUGIN_ID,
-      param: {
-        name:    WORKER_STORAGE_KEY,
-        type:    'input',
-        values:  '',
-        default: '',
-      },
-      field: {
-        name:        Lampa.Lang.translate('adult_worker_url'),
-        description: Lampa.Lang.translate('adult_worker_url_descr'),
-      },
-      onRender: function (item) {
-        // [1.3.0] Показываем текущее значение сразу
-        var current = Lampa.Storage.get(WORKER_STORAGE_KEY, '') || '';
-
-        // Подсвечиваем текущее значение в строке настройки
-        var valueEl = item.find('.settings-param__value');
-        if (valueEl.length) {
-          valueEl.text(current ? current.substring(0, 40) + '...' : '(не задан)');
-        }
-
-        item.on('hover:enter', function () {
-          var ctrl = Lampa.Controller.enabled().name;
-          $('body').addClass('ambience--enable');
-
-          Lampa.Input.edit(
-            {
-              title:  Lampa.Lang.translate('adult_worker_url'),
-              value:  Lampa.Storage.get(WORKER_STORAGE_KEY, '') || '',
-              free:   true,
-              nosave: true,
-            },
-            function (value) {
-              $('body').removeClass('ambience--enable');
-              Lampa.Controller.toggle(ctrl);
-
-              // [1.3.0] Нормализуем: обрезаем пробелы, добавляем '=' если нет
-              value = (value || '').trim();
-              if (value && value.charAt(value.length - 1) !== '=') {
-                value = value + '=';
-                Lampa.Noty.show('Worker URL: добавлен завершающий "="', { time: 2000 });
-              }
-
-              // Сохраняем в Storage и в публичный API
-              Lampa.Storage.set(WORKER_STORAGE_KEY, value);
-              if (window.AdultPlugin) window.AdultPlugin.workerUrl = value;
-
-              // Обновляем отображение в Settings
-              if (valueEl.length) {
-                valueEl.text(value ? value.substring(0, 40) + '...' : '(не задан)');
-              }
-
-              Lampa.Noty.show('Worker URL сохранён', { time: 2000 });
-              console.log('[AdultJS] workerUrl сохранён:', value);
-            }
-          );
-        });
-      },
-    });
-
     // [1.1.0] Кнопка «Сброс плагина»
     Lampa.SettingsApi.addParam({
       component: PLUGIN_ID,
@@ -1012,16 +941,8 @@
 
   // ----------------------------------------------------------
   // [1.0.0] ИНИЦИАЛИЗАЦИЯ
-  // [1.3.0] workerUrl инициализируется из Storage при старте
   // ----------------------------------------------------------
   function init() {
-    // [1.3.0] Подгружаем сохранённый URL воркера в публичный API
-    var savedWorker = Lampa.Storage.get(WORKER_STORAGE_KEY, '') || '';
-    if (savedWorker && window.AdultPlugin) {
-      window.AdultPlugin.workerUrl = savedWorker;
-      console.log('[AdultJS] workerUrl загружен из Storage:', savedWorker.substring(0, 60));
-    }
-
     Lampa.Component.add('adult_main', Sisi);
     Lampa.Component.add('adult_view', View);
     Lampa.Search.addSource(SearchSource);
