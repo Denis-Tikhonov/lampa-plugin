@@ -1,9 +1,10 @@
 // =============================================================
 // xds.js — ТЕСТОВАЯ ЗАГЛУШКА AdultJS
-// Version  : 1.1.0
+// Version  : 1.2.0
 // Изменено :
-//  - постеры теперь соответствуют видео
-//  - архитектура подключения НЕ изменена
+//  [1.1.0] постеры соответствуют видео
+//  [1.2.0] BUGFIX: убран playlist_url:'submenu' из группы меню
+//          (AdultJS пытался загрузить URL 'submenu' → Script error)
 // =============================================================
 
 (function () {
@@ -159,11 +160,13 @@
 
     return [{
       title:'Категория: Все',
-      playlist_url:'submenu',
+      // [1.2.0] НЕТ playlist_url у группы — только submenu:[].
+      // Если прописать playlist_url:'submenu', AdultJS.View.filter()
+      // попытается загрузить страницу с URL 'submenu' → Script error.
       submenu:[
-        {title:'[TEST] Все',playlist_url:'xds://test/all'},
+        {title:'[TEST] Все',     playlist_url:'xds://test/all'  },
         {title:'[TEST] Короткие',playlist_url:'xds://test/short'},
-        {title:'[TEST] Длинные',playlist_url:'xds://test/long'}
+        {title:'[TEST] Длинные', playlist_url:'xds://test/long' }
       ]
     }];
 
