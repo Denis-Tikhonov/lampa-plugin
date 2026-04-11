@@ -1,6 +1,6 @@
 // =============================================================
 // AdultJS.js — Lampa Adult Plugin
-// Version  : 1.5.4
+// Version  : 1.5.5
 // Changed  :
 //   [1.0.0] Полный рефакторинг с ab2024.ru → GitHub Pages
 //   [1.0.0] Убраны: RCH, история, лицензионные проверки
@@ -28,7 +28,7 @@
   //         Менять здесь вручную, поле Settings удалено.
   // ----------------------------------------------------------
   var PLUGIN_ID      = 'adult_lampac';
-  var PLUGIN_VERSION = '1.5.4';
+  var PLUGIN_VERSION = '1.5.5';
 
   // ----------------------------------------------------------
   // [1.5.1] ПОЛИФИЛЛЫ — старые Android WebView не имеют
@@ -452,6 +452,13 @@
     console.log('[AdultJS] Parser registered:', name);
   };
   window.AdultPlugin.networkRequest = networkRequest;
+  // [1.5.5] Экспортируем workerUrl чтобы парсеры могли читать актуальный URL
+  // Парсеры должны обращаться к window.AdultPlugin.workerUrl, не держать свою копию
+  Object.defineProperty(window.AdultPlugin, 'workerUrl', {
+    get: function () { return WORKER_DEFAULT; },
+    enumerable: true,
+    configurable: true,
+  });
 
   // ----------------------------------------------------------
   // [1.0.0] УТИЛИТЫ
@@ -685,8 +692,6 @@
             'eporner.com':   'eporner',
             'yjizz.com':     'yjizz',
             'phub.net':      'phub',
-            'rt.pornhub.com': 'phub',
-            'top.porno365tube.win':  'p365',
             'xds.com':       'xds',
           };
           parserName = domainMap[hostname] || stripped.split('/')[0];
