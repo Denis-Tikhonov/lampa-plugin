@@ -25,7 +25,7 @@
   var NAME = 'xv-ru';
   var TAG  = '[xv-ru 1.5.0]';
 
-  var WORKER_DEFAULT = 'https://ВАШ-WORKER.ВАШ-АККАУНТ.workers.dev/?url=';
+  var WORKER_DEFAULT = 'https://zonaproxy.777b737.workers.dev/?url=';
 
   // ----------------------------------------------------------
   // Заголовки
