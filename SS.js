@@ -1,6 +1,6 @@
 // =============================================================
 // AdultJS.js — Lampa Adult Plugin
-// Version  : 1.5.3
+// Version  : 1.5.4
 // Changed  :
 //   [1.0.0] Полный рефакторинг с ab2024.ru → GitHub Pages
 //   [1.0.0] Убраны: RCH, история, лицензионные проверки
@@ -28,7 +28,7 @@
   //         Менять здесь вручную, поле Settings удалено.
   // ----------------------------------------------------------
   var PLUGIN_ID      = 'adult_lampac';
-  var PLUGIN_VERSION = '1.5.3';
+  var PLUGIN_VERSION = '1.5.4';
 
   // ----------------------------------------------------------
   // [1.5.1] ПОЛИФИЛЛЫ — старые Android WebView не имеют
@@ -583,21 +583,20 @@
 
       function show(target, element) {
         hide();
-        // [1.5.2] Guard: target должен быть jQuery-объектом с методом .find()
         if (!target || typeof target.find !== 'function') return;
         if (!element || !element.preview) return;
 
         timer = setTimeout(function () {
           try {
             if (!Lampa.Storage.field('sisi_preview')) return;
-            // [1.5.2] Guard: target мог быть уничтожен пока шёл таймер
-            if (!target || typeof target.find !== 'function') return;
+            if (!target || !target.length) return;
 
             var container = target.find('.adult-video-preview');
-            if (!container.length) {
+
+            if (!container || !container.length) {
+              // [1.5.3] Guard: если .card__view не найден — выходим молча
               var cardView = target.find('.card__view');
-              // [1.5.2] Guard: .card__view может отсутствовать в некоторых версиях Lampa
-              if (!cardView.length) return;
+              if (!cardView || !cardView.length) return;
 
               container = $('<div class="adult-video-preview"></div>').css({
                 position:'absolute', width:'100%', height:'100%',
@@ -607,16 +606,25 @@
                 position:'absolute', width:'100%', height:'100%',
                 left:0, top:0, objectFit:'cover',
               });
-              vid[0].src = element.preview;
-              vid[0].addEventListener('ended', function () { container.addClass('hide'); });
-              vid[0].load();
+              // [1.5.3] Guard: vid[0] может быть null в некоторых WebView
+              if (vid && vid[0]) {
+                vid[0].src = element.preview;
+                vid[0].addEventListener('ended', function () {
+                  try { container.addClass('hide'); } catch(e) {}
+                });
+                vid[0].load();
+              }
               container.append(vid);
               cardView.append(container);
             }
-            activeContainer = container;
-            var vEl = container[0] && container[0].querySelector('video');
-            if (vEl) { try { vEl.play(); } catch(e){} }
-            container.removeClass('hide');
+
+            // [1.5.3] Назначаем activeContainer только если контейнер реальный
+            if (container && container.length) {
+              activeContainer = container;
+              var vEl = container[0] ? container[0].querySelector('video') : null;
+              if (vEl) { try { vEl.play(); } catch(e){} }
+              container.removeClass('hide');
+            }
           } catch(e) {
             console.warn('[AdultJS] preview.show error:', e.message || e);
           }
