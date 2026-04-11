@@ -685,6 +685,7 @@
             'eporner.com':   'eporner',
             'yjizz.com':     'yjizz',
             'phub.net':      'phub',
+            'rt.pornhub.com': 'phub',
             'xds.com':       'xds',
           };
           parserName = domainMap[hostname] || stripped.split('/')[0];
