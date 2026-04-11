@@ -1,304 +1,284 @@
 // =============================================================
-// xds_stub.js
-// TEST STUB для AdultJS / Lampa
-// Постеры соответствуют видео
+// xds.js — ТЕСТОВАЯ ЗАГЛУШКА AdultJS
+// Version  : 1.1.0
+// Изменено :
+//  - постеры теперь соответствуют видео
+//  - архитектура подключения НЕ изменена
 // =============================================================
 
 (function () {
+  'use strict';
+
+  var NAME = 'xds';
+
+  // ----------------------------------------------------------
+  // ВИДЕО + ПОСТЕРЫ
+  // ----------------------------------------------------------
+
+  var VIDEOS = [
+
+    {
+      title:'Big Buck Bunny',
+      url:'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4',
+      poster:'https://peach.blender.org/wp-content/uploads/title_anouncement.jpg',
+      dur:'9:56'
+    },
+
+    {
+      title:'Elephants Dream',
+      url:'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4',
+      poster:'https://upload.wikimedia.org/wikipedia/commons/3/3a/Elephants_Dream_s1_proog.jpg',
+      dur:'10:54'
+    },
+
+    {
+      title:'For Bigger Blazes',
+      url:'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4',
+      poster:'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/images/ForBiggerBlazes.jpg',
+      dur:'0:15'
+    },
 
-'use strict';
-
-var NAME = 'xds';
-
-// ----------------------------------------------------------
-// СКОЛЬКО КАРТОЧЕК ПОКАЗЫВАТЬ (9 или 12)
-// ----------------------------------------------------------
-
-var CARDS_PER_PAGE = 12;
-
-
-// ----------------------------------------------------------
-// ПУБЛИЧНЫЕ ВИДЕО + СООТВЕТСТВУЮЩИЕ ПОСТЕРЫ
-// ----------------------------------------------------------
-
-var VIDEOS = [
-
-{
-title:'Big Buck Bunny',
-url:'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4',
-poster:'https://peach.blender.org/wp-content/uploads/title_anouncement.jpg',
-dur:'9:56'
-},
-
-{
-title:'Elephants Dream',
-url:'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4',
-poster:'https://upload.wikimedia.org/wikipedia/commons/3/3a/Elephants_Dream_s1_proog.jpg',
-dur:'10:54'
-},
+    {
+      title:'For Bigger Escapes',
+      url:'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4',
+      poster:'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/images/ForBiggerEscape.jpg',
+      dur:'0:15'
+    },
 
-{
-title:'Tears of Steel',
-url:'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4',
-poster:'https://mango.blender.org/wp-content/uploads/2013/05/01_thom_celia_bridge.jpg',
-dur:'12:14'
-},
+    {
+      title:'For Bigger Fun',
+      url:'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4',
+      poster:'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/images/ForBiggerFun.jpg',
+      dur:'0:15'
+    },
 
-{
-title:'For Bigger Blazes',
-url:'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4',
-poster:'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/images/ForBiggerBlazes.jpg',
-dur:'0:15'
-},
+    {
+      title:'For Bigger Joyrides',
+      url:'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyrides.mp4',
+      poster:'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/images/ForBiggerJoyrides.jpg',
+      dur:'0:15'
+    },
 
-{
-title:'For Bigger Escape',
-url:'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscape.mp4',
-poster:'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/images/ForBiggerEscape.jpg',
-dur:'0:15'
-},
+    {
+      title:'For Bigger Meltdowns',
+      url:'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerMeltdowns.mp4',
+      poster:'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/images/ForBiggerMeltdowns.jpg',
+      dur:'0:15'
+    },
 
-{
-title:'For Bigger Fun',
-url:'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4',
-poster:'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/images/ForBiggerFun.jpg',
-dur:'0:15'
-},
+    {
+      title:'Subaru Outback',
+      url:'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Subaru_Outback_On_Street_And_Dirt.mp4',
+      poster:'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/images/SubaruOutbackOnStreetAndDirt.jpg',
+      dur:'5:30'
+    },
 
-{
-title:'For Bigger Joyrides',
-url:'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyrides.mp4',
-poster:'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/images/ForBiggerJoyrides.jpg',
-dur:'0:15'
-},
+    {
+      title:'Tears of Steel',
+      url:'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4',
+      poster:'https://mango.blender.org/wp-content/uploads/2013/05/01_thom_celia_bridge.jpg',
+      dur:'12:14'
+    },
 
-{
-title:'Subaru Outback',
-url:'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Subaru_Outback_On_Street_And_Dirt.mp4',
-poster:'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/images/SubaruOutbackOnStreetAndDirt.jpg',
-dur:'5:30'
-},
+    {
+      title:'Volkswagen GTI Review',
+      url:'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/VolkswagenGTIReview.mp4',
+      poster:'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/images/VolkswagenGTIReview.jpg',
+      dur:'0:14'
+    },
 
-{
-title:'Volkswagen GTI',
-url:'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/VolkswagenGTIReview.mp4',
-poster:'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/images/VolkswagenGTIReview.jpg',
-dur:'0:14'
-},
+    {
+      title:'We Are Going On Bullrun',
+      url:'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/WeAreGoingOnBullrun.mp4',
+      poster:'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/images/WeAreGoingOnBullrun.jpg',
+      dur:'0:14'
+    },
 
-{
-title:'We Are Going On Bullrun',
-url:'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/WeAreGoingOnBullrun.mp4',
-poster:'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/images/WeAreGoingOnBullrun.jpg',
-dur:'0:14'
-},
+    {
+      title:'What Car For A Grand',
+      url:'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/WhatCarCanYouGetForAGrand.mp4',
+      poster:'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/images/WhatCarCanYouGetForAGrand.jpg',
+      dur:'0:14'
+    }
 
-{
-title:'What care can you get for a grand',
-url:'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/WhatCarCanYouGetForAGrand.mp4',
-poster:'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/images/WhatCarCanYouGetForAGrand.jpg',
-dur:'0:15'
-},
+  ];
 
-{
-title:'Sintel Trailer',
-url:'https://media.w3.org/2010/05/sintel/trailer.mp4',
-poster:'https://download.blender.org/durian/poster/sintel_poster.jpg',
-dur:'0:52'
-}
+  // ----------------------------------------------------------
+  // ГЕНЕРАТОР КАРТОЧЕК
+  // ----------------------------------------------------------
 
-];
+  function makeCards(count, offset) {
 
+    offset = offset || 0;
 
-// ----------------------------------------------------------
-// ГЕНЕРАЦИЯ КАРТОЧЕК
-// ----------------------------------------------------------
+    var cards = [];
 
-function makeCards(count, offset){
+    var suffix = offset > 0 ? ' [стр.' + (Math.floor(offset / 12) + 1) + ']' : '';
 
-offset = offset || 0;
+    for (var i = 0; i < count; i++) {
 
-var cards = [];
+      var idx = (offset + i) % VIDEOS.length;
 
-for(var i=0;i<count;i++){
+      var v = VIDEOS[idx];
 
-var index = (offset + i) % VIDEOS.length;
+      cards.push({
 
-var video = VIDEOS[index];
+        name:'TEST #' + (offset + i + 1) + ' — ' + v.title + suffix,
 
-cards.push({
+        video:v.url,
 
-name:'TEST VIDEO #' + (offset + i + 1) + ' — ' + video.title,
+        picture:v.poster,
 
-video:video.url,
+        preview:null,
 
-picture:video.poster,
+        time:v.dur,
 
-preview:null,
+        quality:'1080p',
 
-time:video.dur,
+        json:false,
 
-quality:'1080p',
+        related:false,
 
-json:false,
+        model:null,
 
-related:false,
+        source:NAME
 
-source:NAME
+      });
 
-});
+    }
 
-}
+    return cards;
 
-return cards;
+  }
 
-}
+  // ----------------------------------------------------------
+  // МЕНЮ
+  // ----------------------------------------------------------
 
+  function buildMenu(){
 
-// ----------------------------------------------------------
-// МЕНЮ
-// ----------------------------------------------------------
+    return [{
+      title:'Категория: Все',
+      playlist_url:'submenu',
+      submenu:[
+        {title:'[TEST] Все',playlist_url:'xds://test/all'},
+        {title:'[TEST] Короткие',playlist_url:'xds://test/short'},
+        {title:'[TEST] Длинные',playlist_url:'xds://test/long'}
+      ]
+    }];
 
-function buildMenu(){
+  }
 
-return [
+  // ----------------------------------------------------------
+  // API
+  // ----------------------------------------------------------
 
-{
-title:'TEST CONTENT',
+  var XdsStub = {
 
-playlist_url:'submenu',
+    main:function(params,success,error){
 
-submenu:[
+      setTimeout(function(){
 
-{title:'Все видео',playlist_url:'xds://test/all'},
+        success({
+          results:makeCards(12,0),
+          collection:true,
+          total_pages:3,
+          menu:buildMenu()
+        });
 
-{title:'Короткие',playlist_url:'xds://test/short'},
+      },0);
 
-{title:'Длинные',playlist_url:'xds://test/long'}
+    },
 
-]
+    view:function(params,success,error){
 
-}
+      var page=parseInt(params.page,10)||1;
 
-];
+      var offset=(page-1)*12;
 
-}
+      setTimeout(function(){
 
+        success({
+          results:makeCards(12,offset),
+          collection:true,
+          total_pages:3,
+          menu:buildMenu()
+        });
 
-// ----------------------------------------------------------
-// API ПАРСЕРА
-// ----------------------------------------------------------
+      },0);
 
-var XdsStub = {
+    },
 
-main:function(params,success,error){
+    search:function(params,success,error){
 
-setTimeout(function(){
+      var query=params.query||'';
 
-success({
+      setTimeout(function(){
 
-results:makeCards(CARDS_PER_PAGE,0),
+        var results=makeCards(4,0).map(function(c,i){
 
-collection:true,
+          c.name='ПОИСК['+query+'] #'+(i+1)+' — '+VIDEOS[i].title;
 
-total_pages:5,
+          return c;
 
-menu:buildMenu()
+        });
 
-});
+        success({
+          title:'xds: '+query,
+          results:results,
+          url:'xds://test/search?q='+encodeURIComponent(query),
+          collection:true,
+          total_pages:1
+        });
 
-},0);
+      },0);
 
-},
+    }
 
+  };
 
-view:function(params,success,error){
+  // ----------------------------------------------------------
+  // РЕГИСТРАЦИЯ
+  // ----------------------------------------------------------
 
-var page = parseInt(params.page || 1);
+  function tryRegister(){
 
-var offset = (page-1)*CARDS_PER_PAGE;
+    if(window.AdultPlugin && typeof window.AdultPlugin.registerParser==='function'){
 
-setTimeout(function(){
+      window.AdultPlugin.registerParser(NAME,XdsStub);
 
-success({
+      console.log('[xds-stub] v1.1.0 registered');
 
-results:makeCards(CARDS_PER_PAGE,offset),
+      try{
 
-collection:true,
+        setTimeout(function(){
 
-total_pages:5,
+          Lampa.Noty.show('xds: тестовая заглушка v1.1.0',{time:2500});
 
-menu:buildMenu()
+        },500);
 
-});
+      }catch(e){}
 
-},0);
+      return true;
 
-},
+    }
 
+    return false;
 
-search:function(params,success,error){
+  }
 
-var query = params.query || '';
+  if(!tryRegister()){
 
-var results = makeCards(4,0);
+    var elapsed=0;
 
-results.forEach(function(r,i){
+    var poll=setInterval(function(){
 
-r.name = 'SEARCH ['+query+'] #' + (i+1);
+      elapsed+=100;
 
-});
+      if(tryRegister()||elapsed>=10000) clearInterval(poll);
 
-success({
+    },100);
 
-title:'xds search',
-
-results:results,
-
-collection:true,
-
-total_pages:1
-
-});
-
-}
-
-};
-
-
-// ----------------------------------------------------------
-// РЕГИСТРАЦИЯ ПАРСЕРА
-// ----------------------------------------------------------
-
-function register(){
-
-if(window.AdultPlugin && window.AdultPlugin.registerParser){
-
-window.AdultPlugin.registerParser(NAME,XdsStub);
-
-console.log('xds stub registered');
-
-try{
-Lampa.Noty.show('XDS TEST STUB ACTIVE',{time:2000});
-}catch(e){}
-
-return true;
-
-}
-
-return false;
-
-}
-
-
-if(!register()){
-
-var t = setInterval(function(){
-
-if(register()) clearInterval(t);
-
-},200);
-
-}
+  }
 
 })();
