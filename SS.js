@@ -689,10 +689,10 @@
           // pornobriz.com → 'briz'
           var domainMap = {
             'pornobriz.com': 'briz',
-            'eporner.com':   'eporner',
+            'eporner.com':   'epor',
             'yjizz.com':     'yjizz',
             'rt.pornhub.com'':      'phub',
-	          'top.porno365tube.win': 'p365',
+	        'top.porno365tube.win': 'p365',
       	    'xv-ru.com':     'xv-ru',
             'xds.com':       'xds',
           };
