@@ -691,7 +691,9 @@
             'pornobriz.com': 'briz',
             'eporner.com':   'eporner',
             'yjizz.com':     'yjizz',
-            'phub.net':      'phub',
+            'rt.pornhub.com'':      'phub',
+	          'top.porno365tube.win': 'p365',
+      	    'xv-ru.com':     'xv-ru',
             'xds.com':       'xds',
           };
           parserName = domainMap[hostname] || stripped.split('/')[0];
