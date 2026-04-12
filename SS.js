@@ -1,6 +1,6 @@
 // =============================================================
 // AdultJS.js — Lampa Adult Plugin
-// Version  : 1.5.5
+// Version  : 1.5.6
 // Changed  :
 //   [1.0.0] Полный рефакторинг с ab2024.ru → GitHub Pages
 //   [1.0.0] Убраны: RCH, история, лицензионные проверки
@@ -15,7 +15,14 @@
 //   [1.5.1] BUGFIX: null-guard comp.render(), filterMenu.find → цикл
 //   [1.5.3] BUGFIX: Utils.preview.show — полная защита try/catch,
 //           guard на target/.find()/.card__view, muted+playsinline на video
+//   [1.5.6] Добавление в domainMap: 'rt.pornhub.com', 'top.porno365tube.win',
+//	    'xv-ru.com',
 // GitHub   : https://denis-tikhonov.github.io/plug/
+// Worker   : 
+// =============================================================
+//   Внимание: Новые источники подключать в двкх местах и в Worker
+//             var domainMap =
+//             var _dm =
 // =============================================================
 
 (function () {
@@ -28,7 +35,7 @@
   //         Менять здесь вручную, поле Settings удалено.
   // ----------------------------------------------------------
   var PLUGIN_ID      = 'adult_lampac';
-  var PLUGIN_VERSION = '1.5.5';
+  var PLUGIN_VERSION = '1.5.6';
 
   // ----------------------------------------------------------
   // [1.5.1] ПОЛИФИЛЛЫ — старые Android WebView не имеют
