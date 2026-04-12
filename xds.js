@@ -11,6 +11,14 @@
   var API_BASE = 'https://api.pexels.com/videos';
   var PER_PAGE = 15;
 
+	// === ДИАГНОСТИКА — вставить первой строкой ===
+	window.onerror = function (msg, src, line, col, err) {
+	  var text = 'ERR: ' + msg + ' | line: ' + line;
+	  try { Lampa.Noty.show(text, { time: 8000 }); } catch (e) {}
+	  try { console.error('[PEXELS ERROR]', msg, 'line:', line, 'col:', col); } catch (e) {}
+	  return false;
+	};
+
   // ----------------------------------------------------------
   // КАТЕГОРИИ
   // ----------------------------------------------------------
