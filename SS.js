@@ -691,7 +691,7 @@
             'pornobriz.com': 'briz',
             'eporner.com':   'epor',
             'yjizz.com':     'yjizz',
-            'phub.net':      'phub',
+            'rt.pornhub.com':      'phub',
             'xds.com':       'xds',
           };
           parserName = domainMap[hostname] || stripped.split('/')[0];
@@ -753,7 +753,7 @@
 		'pornobriz.com':'briz',
 		'eporner.com':'epor',
 		'yjizz.com':'yjizz',
-		'phub.net':'phub',
+		'rt.pornhub.com':'phub',
 		'xds.com':'xds' 
 };
               _pn = _dm[_hn] || _ps.split('/')[0];
