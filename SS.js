@@ -557,7 +557,7 @@
       for (var q in qualities) {
         if (q.indexOf(prefer) === 0) url = qualities[q];
       }
-      if (!url) url = qualitys[Lampa.Arrays.getKeys(qualities)[0]];
+      if (!url) url = qualities[Lampa.Arrays.getKeys(qualities)[0]];
       return url;
     },
 
