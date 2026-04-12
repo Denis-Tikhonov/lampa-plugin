@@ -693,6 +693,7 @@
             'yjizz.com':     'yjizz',
             'rt.pornhub.com':      'phub',
 			'top.porno365tube.win': 'p365',
+			'xv-ru.com':     'xv-ru',
             'xds.com':       'xds',
           };
           parserName = domainMap[hostname] || stripped.split('/')[0];
@@ -756,6 +757,7 @@
 		'yjizz.com':'yjizz',
 		'rt.pornhub.com':'phub',
 		'top.porno365tube.win': 'p365',
+		'xv-ru.com':     'xv-ru',
 		'xds.com':'xds' 
 };
               _pn = _dm[_hn] || _ps.split('/')[0];
