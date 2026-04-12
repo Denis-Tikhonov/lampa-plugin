@@ -3,13 +3,9 @@
 // Version  : 2.0.0  (fix: preview, time, categories, search)
 // =============================================================
 
-	// === ДИАГНОСТИКА — вставить первой строкой ===
-	window.onerror = function (msg, src, line, col, err) {
-	  var text = 'ERR: ' + msg + ' | line: ' + line;
-	  try { Lampa.Noty.show(text, { time: 10000 }); } catch (e) {}
-	  try { console.error('[PEXELS ERROR]', msg, 'line:', line, 'col:', col); } catch (e) {}
-	  return false;
-	};
+// ВЕСЬ парсер оборачиваем вот так:
+try {
+
 
 (function () {
   'use strict';
@@ -19,13 +15,7 @@
   var API_BASE = 'https://api.pexels.com/videos';
   var PER_PAGE = 15;
 
-	// === ДИАГНОСТИКА — вставить первой строкой ===
-	window.onerror = function (msg, src, line, col, err) {
-	  var text = 'ERR: ' + msg + ' | line: ' + line;
-	  try { Lampa.Noty.show(text, { time: 10000 }); } catch (e) {}
-	  try { console.error('[PEXELS ERROR]', msg, 'line:', line, 'col:', col); } catch (e) {}
-	  return false;
-	};
+
 
   // ----------------------------------------------------------
   // КАТЕГОРИИ
@@ -296,3 +286,29 @@
   }
 
 })();
+
+} catch (e) {
+  // Это поймает реальную ошибку
+  var errMsg = e.message || String(e);
+  var errLine = e.lineNumber || e.line || e.lineno || '?';
+  var errStack = e.stack ? e.stack.substring(0, 200) : '';
+
+  try {
+    localStorage.setItem('pexels_err', errMsg + ' | line: ' + errLine + ' | ' + errStack);
+  } catch (s) {}
+
+  try {
+    Lampa.Select.show({
+      title : 'Parser Error',
+      items : [
+        { title: 'MSG: ' + errMsg },
+        { title: 'LINE: ' + errLine }
+      ],
+      onBack: function () { Lampa.Select.close(); }
+    });
+  } catch (n) {
+    setTimeout(function () {
+      try { Lampa.Noty.show(errMsg + ' line:' + errLine, { time: 60000 }); } catch (x) {}
+    }, 1000);
+  }
+}
