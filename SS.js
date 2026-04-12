@@ -1,6 +1,6 @@
 // =============================================================
 // AdultJS.js — Lampa Adult Plugin
-// Version  : 1.5.7
+// Version  : 1.5.8
 // Changed  :
 //   [1.0.0] Полный рефакторинг с ab2024.ru → GitHub Pages
 //   [1.0.0] Убраны: RCH, история, лицензионные проверки
@@ -22,8 +22,16 @@
 //           Примечание: autoplay <video> заблокирован политикой WebView на TV
 //           без жеста пользователя — визуальное превью на TV невозможно через
 //           HTML5 video. Ошибка теперь тихо логируется как console.log.
+//   [1.5.8] BUGFIX: Utils.fixCards — проксирование picture через Worker.
+//           Постеры карточек запрашивались TV-браузером напрямую с CDN
+//           сайтов (pornobriz.com, xvideos-cdn.com, vids69.com и др.),
+//           которые блокируют hotlink-запросы → пустые картинки на всех
+//           парсерах. Теперь picture оборачивается в Worker URL до того,
+//           как попасть в background_image / poster / img.
+//           Логика: если workerUrl настроен И picture начинается с http
+//           И ещё не проксирован — добавляем префикс Worker + encodeURI.
 // GitHub   : https://denis-tikhonov.github.io/plug/
-// Worker   : 
+// Worker   :
 // =============================================================
 //   Внимание: Новые источники подключать в двух местах и в Worker
 //             var domainMap =
@@ -40,7 +48,7 @@
   //         Менять здесь вручную, поле Settings удалено.
   // ----------------------------------------------------------
   var PLUGIN_ID      = 'adult_lampac';
-  var PLUGIN_VERSION = '1.5.7';
+  var PLUGIN_VERSION = '1.5.8';
 
   // ----------------------------------------------------------
   // [1.5.1] ПОЛИФИЛЛЫ — старые Android WebView не имеют
@@ -62,6 +70,7 @@
       return -1;
     };
   }
+
   var GITHUB_BASE    = 'https://denis-tikhonov.github.io/plug/';
   var MENU_URL       = GITHUB_BASE + 'menu.json';
   var READY_FLAG     = 'plugin_' + PLUGIN_ID + '_ready';
@@ -481,8 +490,51 @@
       return Lampa.Utils.capitalizeFirstLetter((title || '').split('.')[0]);
     },
 
+    // ----------------------------------------------------------
+    // [1.5.8] BUGFIX: проксирование picture через Worker.
+    //
+    // ПРОБЛЕМА: TV-браузер запрашивает URL картинок напрямую с CDN
+    // сайтов (pornobriz.com, xvideos-cdn.com, vids69.com и др.).
+    // CDN блокирует hotlink-запросы по IP-адресу устройства → картинка
+    // не загружается ни в одном парсере.
+    //
+    // РЕШЕНИЕ: до присваивания background_image/poster/img оборачиваем
+    // picture в Worker URL (CORS-прокси), если:
+    //   1. workerUrl настроен (WORKER_DEFAULT не пустой)
+    //   2. picture начинается с 'http' (абсолютный внешний URL)
+    //   3. picture ещё не обёрнут (не начинается с workerUrl)
+    //
+    // Это гарантирует, что все запросы к изображениям проходят через
+    // Cloudflare Worker → CDN получает запрос от IP Worker, а не TV.
+    //
+    // ВАЖНО: preview (mp4-превью) НЕ проксируется здесь — он
+    // используется как src для <video> и требует поддержки Range
+    // запросов. Worker 1.3.5 поддерживает Range, но preview-URL
+    // передаётся напрямую в <video> без fixCards — оставляем как есть.
+    // ----------------------------------------------------------
     fixCards: function (list) {
+      var workerUrl = (window.AdultPlugin && window.AdultPlugin.workerUrl)
+        ? window.AdultPlugin.workerUrl
+        : '';
+
+      // Авто-коррекция: workerUrl должен заканчиваться на '='
+      if (workerUrl && workerUrl.charAt(workerUrl.length - 1) !== '=') {
+        workerUrl = workerUrl + '=';
+      }
+
       list.forEach(function (m) {
+        // [1.5.8] Проксировать picture через Worker если:
+        //   - workerUrl задан
+        //   - picture — абсолютный URL (http/https)
+        //   - picture ещё не проксирован
+        if (workerUrl &&
+            m.picture &&
+            m.picture.indexOf('http') === 0 &&
+            m.picture.indexOf(workerUrl) !== 0) {
+          console.log('[AdultJS] fixCards → proxy picture: ' + m.picture.substring(0, 60));
+          m.picture = workerUrl + encodeURIComponent(m.picture);
+        }
+
         m.background_image = m.picture;
         m.poster            = m.picture;
         m.img               = m.picture;
@@ -577,7 +629,7 @@
         title: 'Меню',
         items: items,
         onSelect: function (m) {
-          if (m.bm)          Bookmarks.toggle(card_data);
+          if (m.bm)               Bookmarks.toggle(card_data);
           else if (m.lampaplayer) Utils.play(card_data);
           Lampa.Controller.toggle('content');
         },
@@ -721,15 +773,14 @@
         // URL не с GitHub Pages — определяем парсер по hostname
         try {
           var hostname = new URL(url).hostname.replace('www.', '');
-          // pornobriz.com → 'briz'
           var domainMap = {
-            'pornobriz.com': 'briz',
-            'eporner.com':   'epor',
-            'yjizz.com':     'yjizz',
-            'rt.pornhub.com':      'phub',
-			'top.porno365tube.win': 'p365',
-			'xv-ru.com':     'xv-ru',
-            'xds.com':       'xds',
+            'pornobriz.com':        'briz',
+            'eporner.com':          'epor',
+            'yjizz.com':            'yjizz',
+            'rt.pornhub.com':       'phub',
+            'top.porno365tube.win': 'p365',
+            'xv-ru.com':            'xv-ru',
+            'xds.com':              'xds',
           };
           parserName = domainMap[hostname] || stripped.split('/')[0];
         } catch(e) {
@@ -786,15 +837,15 @@
           if (_ps.indexOf('http') === 0 || _ps.indexOf('//') === 0) {
             try {
               var _hn = new URL(ch.playlist_url).hostname.replace('www.', '');
-              var _dm = { 		
-		'pornobriz.com':'briz',
-		'eporner.com':'epor',
-		'yjizz.com':'yjizz',
-		'rt.pornhub.com':'phub',
-		'top.porno365tube.win': 'p365',
-		'xv-ru.com':     'xv-ru',
-		'xds.com':'xds' 
-};
+              var _dm = {
+                'pornobriz.com':        'briz',
+                'eporner.com':          'epor',
+                'yjizz.com':            'yjizz',
+                'rt.pornhub.com':       'phub',
+                'top.porno365tube.win': 'p365',
+                'xv-ru.com':            'xv-ru',
+                'xds.com':              'xds',
+              };
               _pn = _dm[_hn] || _ps.split('/')[0];
             } catch(e2) { _pn = 'briz'; }
           } else {
