@@ -699,6 +699,7 @@
             'eporner.com':   'epor',
             'yjizz.com':     'yjizz',
             'rt.pornhub.com':      'phub',
+			'wes.lenkino.adult': 'lkno',
 			'top.porno365tube.win': 'p365',
 			'xv-ru.com':     'xv-ru',
             'xds.com':       'xds',
@@ -763,6 +764,7 @@
 		'eporner.com':'epor',
 		'yjizz.com':'yjizz',
 		'rt.pornhub.com':'phub',
+		'wes.lenkino.adult': 'lkno',
 		'top.porno365tube.win': 'p365',
 		'xv-ru.com':     'xv-ru',
 		'xds.com':'xds' 
