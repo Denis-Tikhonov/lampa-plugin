@@ -1,6 +1,6 @@
 // =============================================================
 // AdultJS.js — Lampa Adult Plugin
-// Version  : 1.5.6
+// Version  : 1.5.7
 // Changed  :
 //   [1.0.0] Полный рефакторинг с ab2024.ru → GitHub Pages
 //   [1.0.0] Убраны: RCH, история, лицензионные проверки
@@ -16,11 +16,16 @@
 //   [1.5.3] BUGFIX: Utils.preview.show — полная защита try/catch,
 //           guard на target/.find()/.card__view, muted+playsinline на video
 //   [1.5.6] Добавление в domainMap: 'rt.pornhub.com', 'top.porno365tube.win',
-//	    'xv-ru.com',
+//           'xv-ru.com'
+//   [1.5.7] BUGFIX: vEl.play() Promise rejection — добавлен .catch() для
+//           гашения необработанных rejection в консоли Android TV WebView.
+//           Примечание: autoplay <video> заблокирован политикой WebView на TV
+//           без жеста пользователя — визуальное превью на TV невозможно через
+//           HTML5 video. Ошибка теперь тихо логируется как console.log.
 // GitHub   : https://denis-tikhonov.github.io/plug/
 // Worker   : 
 // =============================================================
-//   Внимание: Новые источники подключать в двкх местах и в Worker
+//   Внимание: Новые источники подключать в двух местах и в Worker
 //             var domainMap =
 //             var _dm =
 // =============================================================
@@ -35,7 +40,7 @@
   //         Менять здесь вручную, поле Settings удалено.
   // ----------------------------------------------------------
   var PLUGIN_ID      = 'adult_lampac';
-  var PLUGIN_VERSION = '1.5.6';
+  var PLUGIN_VERSION = '1.5.7';
 
   // ----------------------------------------------------------
   // [1.5.1] ПОЛИФИЛЛЫ — старые Android WebView не имеют
@@ -494,16 +499,16 @@
         Lampa.Loading.start(function () { Lampa.Loading.stop(); });
 
         loadParser(parserName, function (parser) {
-          if (parser && typeof parser.qualitys === 'function') {
-            parser.qualitys(
+          if (parser && typeof parser.qualities === 'function') {
+            parser.qualities(
               element.video,
               function (data) {
                 Lampa.Loading.stop();
-                var qualitys = data.qualitys || data;
+                var qualities = data.qualities || data;
                 var video = {
                   title:   element.name,
-                  url:     Utils.qualityDefault(qualitys) || element.video,
-                  quality: qualitys,
+                  url:     Utils.qualityDefault(qualities) || element.video,
+                  quality: qualities,
                 };
                 Lampa.Player.play(video);
                 Lampa.Player.playlist([video]);
@@ -511,7 +516,7 @@
               },
               function (e) {
                 Lampa.Loading.stop();
-                console.warn('[AdultJS] qualitys error:', e);
+                console.warn('[AdultJS] qualities error:', e);
                 var video = { title: element.name, url: element.video };
                 Lampa.Player.play(video);
                 Lampa.Player.playlist([video]);
@@ -529,11 +534,11 @@
         return;
       }
 
-      if (element.qualitys) {
+      if (element.qualities) {
         var video = {
           title:   element.name,
-          url:     Utils.qualityDefault(element.qualitys) || element.video,
-          quality: element.qualitys,
+          url:     Utils.qualityDefault(element.qualities) || element.video,
+          quality: element.qualities,
         };
         Lampa.Player.play(video);
         Lampa.Player.playlist([video]);
@@ -545,14 +550,14 @@
       Lampa.Player.callback(function () { Lampa.Controller.toggle(ctrl); });
     },
 
-    qualityDefault: function (qualitys) {
-      if (!qualitys) return '';
+    qualityDefault: function (qualities) {
+      if (!qualities) return '';
       var prefer = Lampa.Storage.get('video_quality_default', '1080') + 'p';
       var url;
-      for (var q in qualitys) {
-        if (q.indexOf(prefer) === 0) url = qualitys[q];
+      for (var q in qualities) {
+        if (q.indexOf(prefer) === 0) url = qualities[q];
       }
-      if (!url) url = qualitys[Lampa.Arrays.getKeys(qualitys)[0]];
+      if (!url) url = qualitys[Lampa.Arrays.getKeys(qualities)[0]];
       return url;
     },
 
@@ -636,7 +641,30 @@
             if (container && container.length) {
               activeContainer = container;
               var vEl = container[0] ? container[0].querySelector('video') : null;
-              if (vEl) { try { vEl.play(); } catch(e){} }
+              // [1.5.7] BUGFIX: vEl.play() возвращает Promise на современных
+              // движках. Без .catch() браузер/WebView бросает необработанный
+              // Promise rejection в консоль при каждом наведении.
+              // На Android TV autoplay через <video> заблокирован политикой
+              // WebView (требует жест пользователя) — .catch() убирает шум
+              // в логах, но визуальное превью на TV не появится.
+              // Реальное решение — нативный слой (Lampa.Platform), но API
+              // для этого Lampa не предоставляет.
+              if (vEl) {
+                try {
+                  var playPromise = vEl.play();
+                  if (playPromise !== undefined && typeof playPromise.then === 'function') {
+                    playPromise.catch(function (err) {
+                      // NotAllowedError — autoplay заблокирован (Android TV WebView)
+                      // AbortError   — элемент удалён до завершения play()
+                      // Оба случая не критичны — просто гасим rejection
+                      console.log('[AdultJS] preview play() suppressed: ' + (err.name || err.message || err));
+                    });
+                  }
+                } catch(e) {
+                  // Синхронный throw — старый WebView без Promise-play
+                  console.log('[AdultJS] preview play() sync error: ' + (e.message || e));
+                }
+              }
               container.removeClass('hide');
             }
           } catch(e) {
@@ -699,7 +727,6 @@
             'eporner.com':   'epor',
             'yjizz.com':     'yjizz',
             'rt.pornhub.com':      'phub',
-			'wes.lenkino.adult': 'lkno',
 			'top.porno365tube.win': 'p365',
 			'xv-ru.com':     'xv-ru',
             'xds.com':       'xds',
@@ -764,7 +791,6 @@
 		'eporner.com':'epor',
 		'yjizz.com':'yjizz',
 		'rt.pornhub.com':'phub',
-		'wes.lenkino.adult': 'lkno',
 		'top.porno365tube.win': 'p365',
 		'xv-ru.com':     'xv-ru',
 		'xds.com':'xds' 
