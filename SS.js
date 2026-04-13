@@ -703,7 +703,6 @@
             'rt.pornhub.com':       'phub',
             'top.porno365tube.win': 'p365',
             'xv-ru.com':            'xv-ru',
-            'zoo-xvideos.com':      'z777',
             'xds.com':              'xds',
           };
           parserName = domainMap[hostname] || stripped.split('/')[0];
@@ -768,7 +767,6 @@
                 'rt.pornhub.com':       'phub',
                 'top.porno365tube.win': 'p365',
                 'xv-ru.com':            'xv-ru',
-                'zoo-xvideos.com':      'z777',
                 'xds.com':              'xds',
               };
               _pn = _dm[_hn] || _ps.split('/')[0];
