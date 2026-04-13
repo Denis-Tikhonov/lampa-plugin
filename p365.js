@@ -1,16 +1,14 @@
 // =============================================================
 // p365.js — Парсер Porno365 (Top) для AdultJS / Lampa
-// Version  : 1.2.0
-// Based on : YouJizz/XDS Architecture
+// Version  : 1.2.5 (Stable)
 // =============================================================
 
 (function () {
   'use strict';
 
   var NAME = 'p365';
-  var HOST = 'https://top.porno365tube.win';
+  var HOST = 'https://top.porno365tube.win'; // Обязательно с https://
 
-  // Категории взяты из вашего JSON-анализа
   var CATEGORIES = [
     { title: '🔥 HD порно',    slug: 'hd-porno' },
     { title: '🔞 Анал',       slug: 'anal' },
@@ -25,9 +23,14 @@
   ];
 
   // ----------------------------------------------------------
-  // СЕТЕВОЙ ЗАПРОС (Через ядро AdultJS)
+  // СЕТЕВОЙ ЗАПРОС
   // ----------------------------------------------------------
   function httpGet(url, success, error) {
+    // Защита: гарантируем наличие протокола перед отправкой в Worker
+    if (url.indexOf('http') !== 0) {
+      url = HOST + (url.startsWith('/') ? '' : '/') + url;
+    }
+
     if (window.AdultPlugin && typeof window.AdultPlugin.networkRequest === 'function') {
       window.AdultPlugin.networkRequest(url, success, error);
     } else {
@@ -41,26 +44,23 @@
   function buildUrl(path, page, query) {
     var url = HOST;
     if (query) {
-      // Поиск: https://top.porno365tube.win/search/?q=wife
       url += '/search/?q=' + encodeURIComponent(query);
-      if (page > 1) url += '&from=' + page; // У 365 обычно пагинация поиска через from
-    } else if (path && path !== NAME) {
-      // Категория: https://top.porno365tube.win/categories/anal/2
+      if (page > 1) url += '&from=' + page; 
+    } else if (path && path !== NAME && path !== 'main') {
       url += '/categories/' + path + '/' + (page > 1 ? page : '');
     } else {
-      // Главная: https://top.porno365tube.win/2
       url += (page > 1 ? '/' + page : '/');
     }
     return url;
   }
 
   // ----------------------------------------------------------
-  // ПАРСИНГ КАРТОЧЕК (На основе .video-block из JSON)
+  // ПАРСИНГ КАРТОЧЕК
   // ----------------------------------------------------------
   function parsePlaylist(html) {
     var results = [];
     var doc = new DOMParser().parseFromString(html, 'text/html');
-    var items = doc.querySelectorAll('.video-block'); // Селектор из JSON
+    var items = doc.querySelectorAll('.video-block'); 
 
     for (var i = 0; i < items.length; i++) {
       var el = items[i];
@@ -68,17 +68,19 @@
       if (!a) continue;
 
       var href = a.getAttribute('href');
-      if (href.indexOf('http') !== 0) href = HOST + href;
+      if (href.indexOf('http') !== 0) {
+          href = HOST + (href.startsWith('/') ? '' : '/') + href;
+      }
 
       var img = el.querySelector('img');
       var pic = '';
       if (img) {
-        // Из JSON: используем data-src, так как на сайте lazy-load
         pic = img.getAttribute('data-src') || img.getAttribute('src') || '';
-        if (pic && pic.indexOf('http') !== 0) pic = HOST + pic;
+        if (pic && pic.indexOf('http') !== 0) {
+            pic = HOST + (pic.startsWith('/') ? '' : '/') + pic;
+        }
       }
 
-      // Название из селектора .title или alt картинки
       var titleEl = el.querySelector('.title');
       var name = titleEl ? titleEl.textContent.trim() : (img ? img.getAttribute('alt') : 'No Title');
 
@@ -102,7 +104,7 @@
   }
 
   // ----------------------------------------------------------
-  // РОУТИНГ (routeView)
+  // РОУТИНГ
   // ----------------------------------------------------------
   function routeView(url, page, success, error) {
     var searchMatch = url.match(/[?&]search=([^&]*)/);
@@ -154,51 +156,33 @@
   // ----------------------------------------------------------
   // ИЗВЛЕЧЕНИЕ ВИДЕО (QUALITIES)
   // ----------------------------------------------------------
-    // ----------------------------------------------------------
-  // ИЗВЛЕЧЕНИЕ ВИДЕО (QUALITIES) - ИСПРАВЛЕНО
-  // ----------------------------------------------------------
   function getQualities(videoUrl, success, error) {
     httpGet(videoUrl, function (html) {
       var q = {};
 
-      // 1. Поиск в JS-функциях плеера (самый надежный метод для этого сайта)
+      // 1. Поиск в JS-функциях плеера
       var hlsMatch  = html.match(/setVideoHlsUrl\(['"]([^'"]+)['"]/);
       var highMatch = html.match(/setVideoUrlHigh\(['"]([^'"]+)['"]/);
       var lowMatch  = html.match(/setVideoUrlLow\(['"]([^'"]+)['"]/);
 
-      if (hlsMatch && hlsMatch[1])  q['HLS (Auto)'] = hlsMatch[1];
-      if (highMatch && highMatch[1]) q['720p (MP4)'] = highMatch[1];
-      if (lowMatch && lowMatch[1])  q['480p (MP4)'] = lowMatch[1];
+      if (hlsMatch)  q['HLS'] = hlsMatch[1];
+      if (highMatch) q['720p'] = highMatch[1];
+      if (lowMatch)  q['480p'] = lowMatch[1];
 
-      // 2. Резервный поиск (если переменные называются иначе)
-      if (Object.keys(q).length === 0) {
-        var v_url = html.match(/video_url:\s*['"]([^'"]+)['"]/);
-        var v_alt = html.match(/video_alt_url:\s*['"]([^'"]+)['"]/);
-        if (v_url) q['720p'] = v_url[1];
-        if (v_alt) q['480p'] = v_alt[1];
-      }
-
-      // 3. Обработка относительных ссылок (если сайт отдал путь без домена)
+      // 2. Очистка и исправление ссылок
       for (var key in q) {
-        if (q[key].indexOf('//') === 0) {
-          q[key] = 'https:' + q[key];
-        } else if (q[key].indexOf('/') === 0) {
-          q[key] = HOST + q[key];
+        var link = q[key].replace(/\\\//g, '/').trim();
+        if (link.indexOf('http') !== 0) {
+          if (link.indexOf('//') === 0) link = 'https:' + link;
+          else link = HOST + (link.startsWith('/') ? '' : '/') + link;
         }
-        // Заменяем экранированные слеши, если они есть
-        q[key] = q[key].replace(/\\\//g, '/');
+        q[key] = link;
       }
 
       if (Object.keys(q).length > 0) {
         success({ qualities: q });
       } else {
-        // Последний шанс: ищем вообще любую ссылку на mp4 на странице
-        var anyMp4 = html.match(/https?:\/\/[^"'\s]+\.mp4[^"'\s]*/);
-        if (anyMp4) {
-          success({ qualities: { 'SD': anyMp4[0] } });
-        } else {
-          error('Видео не найдено (ошибка парсинга плеера)');
-        }
+        error('Видео не найдено (ошибка парсинга плеера)');
       }
     }, error);
   }
