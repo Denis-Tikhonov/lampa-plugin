@@ -1,9 +1,6 @@
 // =============================================================
 // lkno.js — Lenkino Parser для AdultJS
-// Version  : 1.4.0
-// Changes  :
-//   [1.4.0] Поиск → /search/{query} (был /?q={query})
-//           Пагинация поиска → /search/{query}/page/N
+// Version  : 1.5.0
 // =============================================================
 
 (function () {
@@ -51,6 +48,15 @@
     return url && url.indexOf(BASE_URL) === 0;
   }
 
+  function cleanMp4Url(url) {
+    return url
+      .replace(/[?&]rnd=\d+/g, '')
+      .replace(/[?&]br=\d+/g,  '')
+      .replace(/[?&]+$/g,      '')
+      .replace(/\/+$/,         '')
+      + '/';
+  }
+
   // ----------------------------------------------------------
   // ПОСТРОЕНИЕ URL
   // ----------------------------------------------------------
@@ -66,8 +72,6 @@
       : BASE_URL + '/' + slug + '/page/' + page;
   }
 
-  // ★ ИСПРАВЛЕНО: /search/{query} вместо /?q={query}
-  // Пагинация: /search/{query}/page/N
   function buildSearchUrl(query, page) {
     page = parseInt(page, 10) || 1;
     var base = BASE_URL + '/search/' + encodeURIComponent(query);
@@ -116,18 +120,14 @@
       if (!linkEl || !imgEl) continue;
 
       var href = fixUrl(linkEl.getAttribute('href') || '');
-
-      // Фильтруем внешние/рекламные карточки
       if (!isInternalUrl(href)) continue;
 
-      // Title из .itm-tit, fallback → alt
       var title = '';
       if (titEl) title = titEl.textContent.trim();
       if (!title) title = (imgEl.getAttribute('alt') || '').trim();
       if (!title) continue;
 
       var poster   = fixUrl(imgEl.getAttribute('src') || '');
-      var mp4Url   = fixUrl(imgEl.getAttribute('data-preview') || '');
       var duration = durEl ? durEl.textContent.trim() : '';
 
       results.push({
@@ -135,7 +135,7 @@
         title:            title,
         duration:         duration,
         url:              href,
-        video:            mp4Url || href,
+        video:            href,
         picture:          poster,
         img:              poster,
         poster:           poster,
@@ -172,7 +172,7 @@
   }
 
   // ----------------------------------------------------------
-  // ЗАГРУЗКА СТРАНИЦЫ
+  // ЗАГРУЗКА СПИСКА
   // ----------------------------------------------------------
   function fetchList(url, success, error) {
     console.log('[lkno] fetchList →', url);
@@ -192,7 +192,7 @@
   }
 
   // ----------------------------------------------------------
-  // РОУТЕР
+  // РОУТЕР — вспомогательная функция
   // ----------------------------------------------------------
   function parseSearchParam(url) {
     var m = url.match(/[?&]search=([^&]*)/);
@@ -214,7 +214,7 @@
 
       console.log('[lkno] view → "' + url + '" page=' + page);
 
-      // 1) ?search= (фильтр AdultJS)
+      // 1) ?search= — фильтр AdultJS
       var sq = parseSearchParam(url);
       if (sq !== null) {
         fetchList(buildSearchUrl(sq.trim(), page), success, error);
@@ -262,48 +262,25 @@
     qualities: function (videoUrl, success, error) {
       console.log('[lkno] qualities →', videoUrl);
 
-      // MP4 из data-preview — возвращаем сразу
-      if (videoUrl && /\.mp4\/?/i.test(videoUrl)) {
-        var cleanUrl = videoUrl.replace(/\/$/, '') + '/';
-        console.log('[lkno] MP4 из карточки:', cleanUrl.substring(0, 80));
-        success({ '720p': cleanUrl });
-        return;
-      }
-
-      // Fallback: запрос страницы видео
-      console.log('[lkno] запрос страницы видео:', videoUrl);
       request(videoUrl, function (html) {
-        var patterns = [
-          /["'](https?:\/\/[^"']*\/get_file\/[^"']*\.mp4\/?)[^"']*/i,
-          /"(https?:\/\/[^"]+?\.mp4[^"]*?)"/i,
-          /(https?:\/\/\S+\.mp4\/?)/i
-        ];
 
-        for (var p = 0; p < patterns.length; p++) {
-          var match = html.match(patterns[p]);
-          if (match && match[1]) {
-            var cleanUrl = match[1].replace(/\\/g, '').replace(/\/$/, '') + '/';
-            console.log('[lkno] MP4 со страницы:', cleanUrl.substring(0, 80));
-            success({ '720p': cleanUrl });
-            return;
-          }
+        // Берём src прямо из тега <video src="...">
+        var m = html.match(/<video[^>]+\bsrc=["'](https?:\/\/[^"']+\.mp4[^"']*)/i);
+
+        if (m && m[1]) {
+          var url   = cleanMp4Url(m[1]);
+          var label = (url.match(/_(\d{3,4}p)\.mp4/i) || ['', '480p'])[1];
+          console.log('[lkno] video src →', label, url.substring(0, 80));
+          var result = {};
+          result[label] = url;
+          success(result);
+          return;
         }
 
-        // Последний fallback: тег <video>
-        var c = document.createElement('div');
-        c.innerHTML = html;
-        var srcEl = c.querySelector('video source[src], video[src]');
-        var streamUrl = srcEl
-          ? (srcEl.getAttribute('src') || srcEl.getAttribute('data-src') || '')
-          : '';
-
-        if (streamUrl) {
-          success({ 'Auto': fixUrl(streamUrl) });
-        } else {
-          error('Видео не найдено на странице');
-        }
+        error('Видео не найдено на странице');
       }, error);
     }
+
   };
 
   // ----------------------------------------------------------
@@ -312,7 +289,7 @@
   function tryRegister() {
     if (window.AdultPlugin && typeof window.AdultPlugin.registerParser === 'function') {
       window.AdultPlugin.registerParser(NAME, LenkinoParser);
-      console.log('[lkno] v1.4.0 зарегистрирован OK');
+      console.log('[lkno] v1.5.0 зарегистрирован OK');
       return true;
     }
     return false;
