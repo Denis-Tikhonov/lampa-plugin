@@ -1,9 +1,10 @@
 // =============================================================
 // xv-ru.js — Парсер xv-ru.com для AdultJS / AdultPlugin (Lampa)
-// Version  : 2.0.1
+// Version  : 2.0.2
 // Changes  :
-//   [2.0.1] Архитектура YouJizz/XDS: Внедрена система «умного роутинга» (routeView)
-//           Исправление постеров: Добавлены обязательные поля img, poster, background_image
+//   [2.0.2] Исправлены Категории (внедрен список из JSON)
+//           Исправлены Названия (генерация из URL slug, т.к. title в HTML отсутствует)
+//           Добавлен Cookie: disclaimer=1
 // =============================================================
 
 (function () {
@@ -12,14 +13,15 @@
   var HOST      = 'https://www.xv-ru.com';
   var NAME      = 'xv-ru';
   var TAG       = '[xv-ru]';
-  var VERSION   = '2.0.1';
+  var VERSION   = '2.0.2';
   var NOTY_TIME = 3000;
 
   var WORKER_DEFAULT = 'https://zonaproxy.777b737.workers.dev/?url=';
 
+  // Обновленные заголовки с Age Gate (из JSON)
   var REQUEST_HEADERS = {
     'User-Agent':      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Cookie':          'static_cdn=1',
+    'Cookie':          'disclaimer=1; static_cdn=1', // <--- Добавлено disclaimer=1
     'Referer':         HOST + '/',
     'Accept-Language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7',
   };
@@ -29,6 +31,50 @@
     { title: 'Лучшее',     val: 'best', urlPath: 'best-videos',  searchParam: '&top' },
     { title: 'Популярные', val: 'top',  urlPath: 'most-viewed',  searchParam: '&top' },
     { title: 'Длительные', val: 'long', urlPath: 'longest',      searchParam: ''     },
+  ];
+
+  // ----------------------------------------------------------
+  // СПИСОК КАТЕГОРИЙ (Из JSON navigation.categories.merged)
+  // ----------------------------------------------------------
+  var CATEGORIES = [
+    { title: 'Азиат',         slug: 'Asian_Woman-32' },
+    { title: 'Анал',          slug: 'Anal-12' },
+    { title: 'Арабки',        slug: 'Arab-159' },
+    { title: 'Бисексуалы',    slug: 'Bi_Sexual-62' },
+    { title: 'Блондинки',     slug: 'Blonde-20' },
+    { title: 'Большие Попы',  slug: 'Big_Ass-24' },
+    { title: 'Большие Сиськи',slug: 'Big_Tits-23' },
+    { title: 'Большие яйца',  slug: 'Big_Cock-34' },
+    { title: 'Брюнетки',      slug: 'Brunette-25' },
+    { title: 'В масле',       slug: 'Oiled-22' },
+    { title: 'Веб камеры порно', slug: 'Cam_Porn-58' },
+    { title: 'Гэнгбэнг',      slug: 'Gangbang-69' },
+    { title: 'Зияющие отверстия', slug: 'Gapes-167' },
+    { title: 'Зрелые',        slug: 'Mature-38' },
+    { title: 'ИИ',            slug: 'AI-239' },
+    { title: 'Индийский',     slug: 'Indian-89' },
+    { title: 'Испорченная семья', slug: 'Fucked_Up_Family-81' },
+    { title: 'Кончает внутрь', slug: 'Creampie-40' },
+    { title: 'Куколд / Горячая Жена', slug: 'Cuckold-237' },
+    { title: 'Латинки',       slug: 'Latina-16' },
+    { title: 'Лесбиянки',     slug: 'Lesbian-26' },
+    { title: 'Любительское порно', slug: 'Amateur-65' },
+    { title: 'Мамочки. МИЛФ', slug: 'Milf-19' },
+    { title: 'Межрассовые',   slug: 'Interracial-27' },
+    { title: 'Минет',         slug: 'Blowjob-15' },
+    { title: 'Нижнее бельё',  slug: 'Lingerie-83' },
+    { title: 'Попки',         slug: 'Ass-14' },
+    { title: 'Рыжие',         slug: 'Redhead-31' },
+    { title: 'Сквиртинг',     slug: 'Squirting-56' },
+    { title: 'Соло',          slug: 'Solo_and_Masturbation-33' },
+    { title: 'Сперма',        slug: 'Cumshot-18' },
+    { title: 'Тинейджеры',    slug: 'Teen-13' },
+    { title: 'Фемдом',        slug: 'Femdom-235' },
+    { title: 'Фистинг',       slug: 'Fisting-165' },
+    { title: 'Черные Женщины',slug: 'bbw-51' },
+    { title: 'Черный',        slug: 'Black_Woman-30' },
+    { title: 'Чулки,колготки',slug: 'Stockings-28' },
+    { title: 'ASMR',          slug: 'ASMR-229' }
   ];
 
   function getWorkerUrl() {
@@ -62,9 +108,27 @@
   }
 
   // ----------------------------------------------------------
-  // РОУТИНГ И ПАРСИНГ (УМНЫЙ РОУТИНГ)
+  // УТИЛИТЫ
+  // ----------------------------------------------------------
+  // Генерация названия из slug, т.к. в HTML title отсутствует (по JSON)
+  function getTitleFromUrl(url) {
+    if (!url) return '';
+    // Берем последнюю часть URL
+    var parts = url.split('/').filter(function(p){ return p && p.length > 0; });
+    var lastPart = parts[parts.length - 1] || '';
+    // Убираем параметры запроса если есть
+    lastPart = lastPart.split('?')[0];
+    // Заменяем подчеркивания на пробелы и делаем первую букву заглавной
+    if (!lastPart) return "Video";
+    
+    return lastPart.replace(/_/g, ' ').replace(/\b\w/g, function(l) { return l.toUpperCase(); });
+  }
+
+  // ----------------------------------------------------------
+  // РОУТИНГ И ПАРСИНГ
   // ----------------------------------------------------------
   function parseSearchParam(url) {
+    // JSON показывает параметр "k"
     var match = url.match(/[?&](search|k)=([^&]*)/);
     if (match) return decodeURIComponent(match[2].replace(/\+/g, ' '));
     return null;
@@ -73,7 +137,7 @@
   function routeView(url, page, success, error) {
     log('routeView → url="' + url + '" page=' + page);
 
-    // 1. Поиск через фильтр Lampa (?search=...)
+    // 1. Поиск через фильтр Lampa (?search=... или ?k=...)
     var searchParam = parseSearchParam(url);
     if (searchParam !== null) {
       fetchPage(buildUrl('top', searchParam, '', page), page, success, error);
@@ -87,7 +151,7 @@
       return;
     }
 
-    // 3. Сортировки
+    // 3. Сортировки (new, best, etc)
     for (var i = 0; i < SORTS.length; i++) {
         if (url.indexOf(SORTS[i].urlPath) !== -1 || url.indexOf(SORTS[i].val) !== -1) {
             fetchPage(buildUrl(SORTS[i].val, '', '', page), page, success, error);
@@ -102,11 +166,13 @@
   function buildUrl(sort, search, category, page) {
     page = parseInt(page, 10) || 1;
     if (search) {
-      var offset = page > 1 ? '&p=' + (page - 1) : '';
+      // Поиск использует ?k= (JSON)
+      var offset = page > 1 ? '&p=' + (page - 1) : ''; // Обычно XVideos использует p для пагинации поиска
       var sortParam = (sort === 'top' || sort === 'best') ? '&top' : '';
       return HOST + '/?k=' + encodeURIComponent(search) + sortParam + offset;
     }
     if (category) return HOST + '/c/' + category + (page > 1 ? '/' + page : '');
+    
     var sObj = SORTS.filter(function(s){ return s.val === sort; })[0] || SORTS[0];
     return HOST + '/' + sObj.urlPath + '/' + page;
   }
@@ -115,43 +181,46 @@
     httpGet(loadUrl, function (html) {
       var results = parsePlaylist(html);
       if (!results.length) { error('Ничего не найдено'); return; }
-      getCategories(function (cats) {
-        success({
-          results: results,
-          collection: true,
-          total_pages: results.length >= 20 ? page + 5 : page,
-          menu: buildMenu(loadUrl, cats)
-        });
+      success({
+        results: results,
+        collection: true,
+        total_pages: results.length >= 20 ? page + 5 : page,
+        menu: buildMenu(loadUrl)
       });
     }, error);
   }
 
   // ----------------------------------------------------------
-  // ИСПРАВЛЕНИЕ КАРТОЧЕК (ПОЛЯ ПОСТЕРОВ)
+  // ПАРСИНГ КАРТОЧЕК (ИСПРАВЛЕНО)
   // ----------------------------------------------------------
-  function _extractCard(el, thumbMap) {
+  function _extractCard(el) {
     var aEl = el.querySelector('a[href*="/video"]');
     if (!aEl) return null;
+    
     var rawHref = aEl.getAttribute('href') || '';
     if (rawHref.indexOf('http') !== 0) rawHref = HOST + rawHref;
     var href = rawHref.replace(/\/THUMBNUM\//i, '/');
 
-    // Название
-    var name = (aEl.getAttribute('title') || el.querySelector('.title')?.textContent || '').trim();
-    if (!name) name = "Video " + href.split('/').pop();
+    // 1. Попытка взять название из атрибута (если вдруг есть)
+    var name = (aEl.getAttribute('title') || '').trim();
 
-    // Картинка (Исправлено: внедрены обязательные поля AdultJS)
+    // 2. ИСПРАВЛЕНИЕ: Если нет названия, генерируем из URL (требование на основе JSON)
+    if (!name) {
+      name = getTitleFromUrl(href);
+    }
+    if (!name) name = "Video"; // Фоллбэк
+
+    // 3. Картинка (data-src по JSON)
     var pic = "";
-    if (thumbMap[href]) pic = thumbMap[href].thumb;
-    if (!pic) {
-        var img = el.querySelector('img');
-        pic = img ? (img.getAttribute('data-src') || img.getAttribute('src')) : "";
+    var img = el.querySelector('img');
+    if (img) {
+        pic = img.getAttribute('data-src') || img.getAttribute('src') || "";
     }
 
     return {
       name: name,
       video: href,
-      // Совместимость с AdultJS плитки
+      // Обязательные поля AdultJS
       picture: pic,
       img: pic,
       poster: pic,
@@ -164,48 +233,33 @@
     };
   }
 
-  // Специфичный парсинг xv-ru (упрощенно для краткости, логика thumbMap сохранена)
   function parsePlaylist(html) {
-    var thumbMap = _parseXvJson(html);
     var doc = new DOMParser().parseFromString(html, 'text/html');
     var items = doc.querySelectorAll('.thumb');
     var cards = [];
     for(var i=0; i<items.length; i++){
-        var c = _extractCard(items[i], thumbMap);
+        var c = _extractCard(items[i]);
         if(c) cards.push(c);
     }
     return cards;
   }
 
-  function _parseXvJson(html) {
-    var map = {};
-    var re = /"url"\s*:\s*"(\/video[^"]+)"[^}]*?"thumb_url"\s*:\s*"([^"]+)"/g;
-    var m;
-    while ((m = re.exec(html))) {
-      map[HOST + m[1].replace(/\\\//g, '/')] = { thumb: m[2].replace(/\\\//g, '/'), title: '' };
-    }
-    return map;
-  }
-
   // ----------------------------------------------------------
   // МЕНЮ И КАТЕГОРИИ
   // ----------------------------------------------------------
-  var _categoriesCache = null;
-  function getCategories(cb) {
-    if (_categoriesCache) return cb(_categoriesCache);
-    httpGet(HOST + '/c', function(html) {
-        var doc = new DOMParser().parseFromString(html, 'text/html');
-        var cats = [];
-        doc.querySelectorAll('a[href*="/c/"]').forEach(function(a){
-            var slug = a.getAttribute('href').split('/c/')[1];
-            if(slug && cats.length < 30) cats.push({title: a.textContent.trim(), val: slug, urlPath: 'c/'+slug});
-        });
-        _categoriesCache = cats;
-        cb(cats);
-    }, function(){ cb([]); });
+  function getCategories() {
+    // Возвращаем статический список из JSON вместо парсинга страницы
+    return CATEGORIES.map(function(c) {
+        return {
+            title: c.title,
+            val: c.slug,
+            urlPath: 'c/' + c.slug
+        };
+    });
   }
 
-  function buildMenu(url, cats) {
+  function buildMenu(url) {
+    var cats = getCategories();
     return [
       { title: '🔍 Поиск', search_on: true, playlist_url: NAME + '/search/' },
       { title: '🔥 Сортировка', submenu: SORTS.map(function(s){ return {title: s.title, playlist_url: NAME + '/' + s.val}; }) },
@@ -232,13 +286,20 @@
       }, error);
     },
     qualities: function (url, success, error) {
-        // Вызов существующей логики getStreamLinks из xv-ru_200
         httpGet(url, function(html){
             var q = {};
+            // Стандартный паттерн для Xvideos клонов
             var mH = html.match(/html5player\.setVideoUrlHigh\(['"]([^'"]+)['"]\)/);
             var mL = html.match(/html5player\.setVideoUrlLow\(['"]([^'"]+)['"]\)/);
             if(mH) q['720p'] = mH[1];
             if(mL) q['480p'] = mL[1];
+            
+            // Паттерн HLS из JSON (hls-cdn77)
+            if (!q['720p'] && !q['480p']) {
+                 var mHls = html.match(/"(https?:\/\/hls[^"]+\.m3u8[^"]*)"/);
+                 if (mHls) q['auto'] = mHls[1];
+            }
+
             if(Object.keys(q).length) success({qualities: q});
             else error('Видео не найдено');
         }, error);
