@@ -1,6 +1,9 @@
 // =============================================================
 // yjizz.js — Парсер YouJizz для AdultJS / AdultPlugin (Lampa)
 // Version  : 2.0.1
+// Changes  :
+//   [2.0.1] Исправлен buildSearchUrl → /search/query-page.html
+//           Исправлены поля постера → +img, +poster, +background_image
 // =============================================================
 
 (function () {
@@ -94,11 +97,10 @@
     return HOST + '/categories/' + cat + '-' + (page || 1) + '.html';
   }
 
+  // ★ ИСПРАВЛЕНО: /search/step-sister-1.html
   function buildSearchUrl(query, page) {
-    page = page || 1;
-    var url = HOST + '/?q=' + encodeURIComponent(query);
-    if (page > 1) url += '&page=' + page;
-    return url;
+    var slug = query.trim().toLowerCase().replace(/\s+/g, '-');
+    return HOST + '/search/' + slug + '-' + (page || 1) + '.html';
   }
 
   // ----------------------------------------------------------
@@ -144,6 +146,8 @@
     if (picture && picture.indexOf('http') !== 0 && picture.length > 1) {
       picture = 'https:' + picture;
     }
+    // Игнорируем spacer-заглушку
+    if (picture.indexOf('spacer') !== -1) picture = '';
 
     var titleEl = el.querySelector('.video-title a');
     if (!titleEl) titleEl = el.querySelector('.video-title');
@@ -160,16 +164,20 @@
     var quality = qualEl ? 'HD' : '';
 
     return {
-      name:    name,
-      video:   href,
-      picture: picture,
-      preview: preview,
-      time:    time,
-      quality: quality,
-      json:    true,
-      related: true,
-      model:   null,
-      source:  NAME,
+      name:             name,
+      video:            href,
+      // ★ ИСПРАВЛЕНО: четыре поля постера вместо одного
+      picture:          picture,
+      img:              picture,
+      poster:           picture,
+      background_image: picture,
+      preview:          preview,
+      time:             time,
+      quality:          quality,
+      json:             true,
+      related:          true,
+      model:            null,
+      source:           NAME,
     };
   }
 
@@ -180,7 +188,7 @@
     httpGet(videoPageUrl, function (html) {
       var qualitys = {};
 
-      // --- Метод 1: поиск dataEncodings через indexOf ---
+      // --- Метод 1: dataEncodings ---
       try {
         var idx = html.indexOf('dataEncodings');
         if (idx !== -1) {
