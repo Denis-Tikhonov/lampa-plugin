@@ -1,404 +1,540 @@
 // =============================================================
 // yjizz.js — Парсер YouJizz для AdultJS / AdultPlugin (Lampa)
-// Version  : 1.0.0
-// Changed  : [1.0.0] Первая версия.
-//            Конфиг взят из AdultJS_debug_v1.3.2 [BLOCK:13] nexthub P[].
-//            Структура сайта из документа Site Structure Analyzer v2.0.
+// Version  : 2.0.0
+// Changed  :
+//   [1.0.0] Первая версия — ограниченно рабочая.
+//   [2.0.0] Полный рефакторинг по образцу xds_1.1.0.
+//           Убран Worker из парсера — используется AdultPlugin.networkRequest().
+//           Исправлен URL поиска: /?q={query}&page={N} (из анализатора).
+//           Исправлены селекторы карточек: точная структура из HTML-анализа.
+//             - Контейнер:  .video-item
+//             - Ссылка:     a.frame.video[href]
+//             - Preview:    a.frame.video[data-clip]  → mp4-клип
+//             - Картинка:   img[data-original]
+//             - Заголовок:  .video-title a
+//             - Время:      span.time (очищается от fa-иконки)
+//             - Качество:   span.i-hd
+//           Исправлено извлечение видео:
+//             Метод 1 — regex JS-переменной encodings=[{quality,filename}]
+//             Метод 2 — <source src title> из video-тега
+//             Метод 3 — regex m3u8/mp4 от abre-videos/cdne-mobile
+//           Роутинг URL по образцу xds_1.1.0:
+//             yjizz/sort/{val}, yjizz/cat/{val}, yjizz/search/
+//           Cookie mature=1 добавляется в fallback-fetch.
 //
-// Структура URL (из analyzer):
-//   Главная/каталог: /{sort}/{page}.html
-//   Поиск:           /search?q={query} (GET-форма)
-//   Категории:       /categories/{name}-{page}.html
-//
-// Структура карточки (из analyzer + AdultJS_debug contentParse):
-//   nodes:    //div[@class='video-thumb']    ← из AdultJS_debug
-//   или:      .video-item                    ← из analyzer
-//   name:     .video-title a / .video-item .video-title
-//   href:     a.frame.video @href / .video-item a
-//   img:      img @data-original             ← lazy-load
-//   duration: span.time / .video-item .time
-//   preview:  a @data-clip                   ← видео-превью
-//
-// Получение видео (из AdultJS_debug view.regexMatch):
-//   "quality":"Auto","filename":"{value}"
-//   формат: "https:{value}"
+// Структура сайта (из анализатора v3.4, 2026-04-13):
+//   Каталог:   /{sort}/{page}.html
+//   Категория: /categories/{slug}-{page}.html
+//   Поиск:     /?q={query}&page={N}
+//   Пагинация: /most-popular/2.html (паттерн)
+//   Age gate:  Cookie: mature=1 (low impact)
+//   Cloudflare: нет | DRM: нет | Auth: нет | SSR: да
 // =============================================================
 
 (function () {
   'use strict';
 
-  var HOST = 'https://www.youjizz.com';
   var NAME = 'yjizz';
+  var HOST = 'https://www.youjizz.com';
 
   // ----------------------------------------------------------
-  // [1.0.0] HTTP
-  // ----------------------------------------------------------
-  function httpGet(url, success, error) {
-    try {
-      var net = new Lampa.Reguest();
-      net.silent(
-        url,
-        function (data) {
-          if (typeof data === 'string' && data.length > 50) success(data);
-          else _fallback(url, success, error);
-        },
-        function () { _fallback(url, success, error); },
-        false,
-        { dataType: 'text', timeout: 12000 }
-      );
-    } catch (e) { _fallback(url, success, error); }
-  }
-
-  function _fallback(url, success, error) {
-    if (typeof fetch === 'undefined') { error('fetch unavailable'); return; }
-    fetch(url, { method: 'GET' })
-      .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
-      .then(success).catch(error);
-  }
-
-  // ----------------------------------------------------------
-  // [1.0.0] КОНФИГУРАЦИЯ СОРТИРОВОК И КАТЕГОРИЙ
-  // Источник: AdultJS_debug [BLOCK:13] Youjizz + Site Analyzer
-  //
-  // Шаблон пагинации: /{sort}/{page}.html
+  // СОРТИРОВКИ
+  // (из навигации анализатора + yjizz 1.0.0)
   // ----------------------------------------------------------
   var SORTS = [
-    { title: 'Новинки',    val: 'newest-clips'    },
-    { title: 'Популярное', val: 'most-popular'     },
-    { title: 'Топ недели', val: 'top-rated-week'   },
-    { title: 'Топ месяца', val: 'top-rated-month'  },
-    { title: 'Лучшее',     val: 'top-rated'        },
-    { title: 'В тренде',   val: 'trending'         },
-    { title: 'HD',         val: 'highdefinition'   },
-  ];
-
-  // Категории из Site Analyzer (топ-20)
-  var CATS = [
-    { title: 'Мачеха',       val: 'stepmom'          },
-    { title: 'Японки',       val: 'japanese'          },
-    { title: 'MILF',         val: 'milf'              },
-    { title: 'Анал',         val: 'anal'              },
-    { title: 'Любительское', val: 'amateur'           },
-    { title: 'Камшот',       val: 'creampie'          },
-    { title: 'Большие сиськи',val:'big-tits'          },
-    { title: 'Threesome',    val: 'threesome'         },
-    { title: 'Сводная сестра',val:'step-sister'       },
-    { title: 'POV',          val: 'pov'               },
-    { title: 'Латинки',      val: 'latina'            },
-    { title: 'Азиатки',      val: 'asian'             },
-    { title: 'Молодые',      val: 'teen'              },
-    { title: 'Хентай',       val: 'hentai'            },
-    { title: 'Межрасовый',   val: 'interracial'       },
-    { title: 'Зрелые',       val: 'mature'            },
-    { title: 'Gangbang',     val: 'gangbang'          },
-    { title: 'Ebony',        val: 'ebony'             },
-    { title: 'Массаж',       val: 'massage'           },
-    { title: 'Компиляция',   val: 'compilation'       },
+    { title: 'Популярное',  val: 'most-popular'    },
+    { title: 'Новинки',     val: 'newest-clips'    },
+    { title: 'Топ недели',  val: 'top-rated-week'  },
+    { title: 'Топ месяца',  val: 'top-rated-month' },
+    { title: 'Лучшее',      val: 'top-rated'       },
+    { title: 'В тренде',    val: 'trending'        },
+    { title: 'HD',          val: 'highdefinition'  },
   ];
 
   // ----------------------------------------------------------
-  // [1.0.0] ПОСТРОЕНИЕ URL
-  // Источник: AdultJS_debug [BLOCK:13] Youjizz route
-  //
-  // Каталог:  /{sort}/{page}.html
-  // Категория: /categories/{name}-{page}.html
-  // Поиск:    /search?q={query} (нет пагинации в URL — только первая страница)
-  // Поиск p2+:/search/{query}-{page}.html  ← паттерн из AdultJS_debug
+  // КАТЕГОРИИ
+  // (из navigation.categories анализатора — только /categories/ URL)
+  // ----------------------------------------------------------
+  var CATS = [
+    { title: 'Мачеха',         val: 'stepmom'           },
+    { title: 'Японки',         val: 'japanese'           },
+    { title: 'MILF',           val: 'milf'               },
+    { title: 'Анал',           val: 'anal'               },
+    { title: 'Любительское',   val: 'amateur'            },
+    { title: 'Кремпай',        val: 'creampie'           },
+    { title: 'Большие сиськи', val: 'big-tits'           },
+    { title: 'Threesome',      val: 'threesome'          },
+    { title: 'Сводная сестра', val: 'step-sister'        },
+    { title: 'POV',            val: 'pov'                },
+    { title: 'Латинки',        val: 'latina'             },
+    { title: 'Азиатки',        val: 'asian'              },
+    { title: 'Молодые',        val: 'teen'               },
+    { title: 'Хентай',         val: 'hentai'             },
+    { title: 'Межрасовый',     val: 'interracial'        },
+    { title: 'Зрелые',         val: 'mature'             },
+    { title: 'Gangbang',       val: 'gangbang'           },
+    { title: 'Ebony',          val: 'ebony'              },
+    { title: 'Массаж',         val: 'massage'            },
+    { title: 'Компиляция',     val: 'compilation'        },
+    { title: 'Blacked',        val: 'blacked'            },
+    { title: 'Сестра',         val: 'sister'             },
+    { title: 'Taboo',          val: 'taboo'              },
+    { title: 'BBC',            val: 'bbc'                },
+    { title: 'Big Ass',        val: 'big-ass'            },
+    { title: 'Блондинки',      val: 'blonde'             },
+    { title: 'Blowjob',        val: 'blowjob'            },
+    { title: 'Папочка',        val: 'daddy'              },
+    { title: 'Семья',          val: 'family'             },
+    { title: 'Японские жёны',  val: 'japanese-wife'      },
+    { title: 'Stepdaughter',   val: 'stepdaughter'       },
+    { title: 'Casting',        val: 'casting'            },
+    { title: 'Pinay',          val: 'pinay'              },
+    { title: 'Stepsister',     val: 'stepsister'         },
+    { title: 'Czech Streets',  val: 'czech-streets'      },
+    { title: 'Lana Rhoades',   val: 'lana-rhoades'       },
+    { title: 'Riley Reid',     val: 'riley-reid'         },
+    { title: 'Cory Chase',     val: 'cory-chase'         },
+    { title: 'Brandi Love',    val: 'brandi-love'        },
+  ];
+
+  // ----------------------------------------------------------
+  // HTTP — через AdultPlugin.networkRequest() (без Worker в парсере)
+  // Fallback: прямой fetch с Cookie: mature=1
+  // ----------------------------------------------------------
+  function httpGet(url, success, error) {
+    if (window.AdultPlugin &&
+        typeof window.AdultPlugin.networkRequest === 'function') {
+      window.AdultPlugin.networkRequest(url, success, error);
+    } else {
+      if (typeof fetch === 'undefined') { error('fetch unavailable'); return; }
+      fetch(url, {
+        method:  'GET',
+        headers: { 'Cookie': 'mature=1' }
+      })
+        .then(function (r) {
+          if (!r.ok) throw new Error('HTTP ' + r.status);
+          return r.text();
+        })
+        .then(success)
+        .catch(error);
+    }
+  }
+
+  // ----------------------------------------------------------
+  // ПОСТРОЕНИЕ URL
+  // Источник: анализатор v3.4 + HTML структура навигации
   // ----------------------------------------------------------
   function buildCatalogUrl(sort, page) {
-    sort = sort || SORTS[0].val;
-    page = page || 1;
-    return HOST + '/' + sort + '/' + page + '.html';
+    return HOST + '/' + (sort || SORTS[0].val) + '/' + (page || 1) + '.html';
   }
 
   function buildCatUrl(cat, page) {
-    page = page || 1;
-    return HOST + '/categories/' + cat + '-' + page + '.html';
+    return HOST + '/categories/' + cat + '-' + (page || 1) + '.html';
   }
 
+  // Поиск: /?q={query}  (page 2+ → &page={N})
+  // Источник: navigation.urlScheme.search из анализатора
   function buildSearchUrl(query, page) {
     page = page || 1;
-    if (page === 1) return HOST + '/search?q=' + encodeURIComponent(query);
-    // Паттерн из AdultJS_debug: /search/{search}-{page}.html
-    return HOST + '/search/' + encodeURIComponent(query) + '-' + page + '.html';
+    var url = HOST + '/?q=' + encodeURIComponent(query);
+    if (page > 1) url += '&page=' + page;
+    return url;
   }
 
   // ----------------------------------------------------------
-  // [1.0.0] ПАРСИНГ КАТАЛОГА
-  // Источник: AdultJS_debug contentParse.nodes = "//div[@class='video-thumb']"
-  // + fallback на .video-item из Site Analyzer
+  // ПАРСИНГ КАРТОЧЕК
   //
-  // Приоритет атрибутов:
-  //   картинка: data-original > src
-  //   превью:   a[data-clip]
-  //   duration: span.time
+  // Точная структура из "5 карточки yjizz.txt":
+  //
+  // <div class="video-thumb">
+  //   <div class="default video-item">
+  //     <div class="frame-wrapper">
+  //       <a class="frame video" href="/videos/..." data-clip="//cdne-mobile.../clip.mp4?...">
+  //         <img class="img-responsive lazy" data-original="//cdne-pics.../...jpg">
+  //         <span class="i-hd">HD</span>
+  //       </a>
+  //     </div>
+  //     <div class="video-title">
+  //       <a href="/videos/...">Title text</a>
+  //     </div>
+  //     <div class="video-content-wrapper">
+  //       <span class="time"><i class="fa fa-clock-o"></i>&nbsp;33:45</span>
+  //     </div>
+  //   </div>
+  // </div>
+  //
+  // CSS-селекторы подтверждены анализатором:
+  //   cardSelector:  ".video-item"
+  //   title.css:     ".video-item .video-title"
+  //   link.css:      ".video-item a[href]"
+  //   thumbnail.css: ".video-item img" (attr: data-original)
+  //   duration.css:  ".video-item .time"
+  //   quality.css:   ".video-item [class*='hd']"
   // ----------------------------------------------------------
-  function parsePlaylist(html) {
+  function parseCards(html) {
     if (!html) return [];
     var doc   = new DOMParser().parseFromString(html, 'text/html');
     var cards = [];
 
-    // Пробуем XPath: //div[@class='video-thumb'] (из AdultJS_debug)
-    var useXPath = false;
-    try {
-      var xNodes = doc.evaluate(
-        "//div[@class='video-thumb']",
-        doc, null, XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null
-      );
-      if (xNodes.snapshotLength > 0) {
-        useXPath = true;
-        for (var xi = 0; xi < xNodes.snapshotLength; xi++) {
-          var card = _parseVideoThumb(xNodes.snapshotItem(xi));
-          if (card) cards.push(card);
-        }
-      }
-    } catch (e) {}
+    // Основной селектор (анализатор: cardSelector = ".video-item")
+    var items = doc.querySelectorAll('.video-item');
 
-    // Fallback: .video-item (из Site Analyzer)
-    if (!cards.length) {
-      doc.querySelectorAll('.video-item').forEach(function (el) {
-        var card = _parseVideoItem(el);
-        if (card) cards.push(card);
-      });
+    // Fallback: родительский .video-thumb
+    if (!items || !items.length) {
+      items = doc.querySelectorAll('.video-thumb');
+    }
+
+    if (!items || !items.length) return [];
+
+    for (var i = 0; i < items.length; i++) {
+      var card = _parseCard(items[i]);
+      if (card) cards.push(card);
     }
 
     return cards;
   }
 
-  // Парсинг блока video-thumb (AdultJS_debug структура)
-  function _parseVideoThumb(el) {
-    var titleEl = el.querySelector('.video-title a, .title a');
-    var aEl     = el.querySelector('a.frame.video, a[class*="frame"]') || el.querySelector('a');
-    if (!titleEl || !aEl) return null;
+  function _parseCard(el) {
+    // --- Ссылка и превью ---
+    // a.frame.video — основная ссылка + data-clip (превью mp4)
+    var aEl = el.querySelector('a.frame.video');
+    if (!aEl) aEl = el.querySelector('a.frame');
+    if (!aEl) aEl = el.querySelector('a[href*="/videos/"]');
+    if (!aEl) return null;
 
-    var name = (aEl.getAttribute('title') || titleEl.textContent || '').trim();
     var href = aEl.getAttribute('href') || '';
     if (!href) return null;
     if (href.indexOf('http') !== 0) href = HOST + href;
 
-    var imgEl   = el.querySelector('img');
-    var picture = imgEl ? (imgEl.getAttribute('data-original') || imgEl.getAttribute('src') || '') : '';
-
-    // Превью: data-clip атрибут на ссылке
+    // data-clip: "//cdne-mobile.youjizz.com/...clip.mp4?validfrom=..."
     var preview = aEl.getAttribute('data-clip') || null;
+    if (preview) {
+      if (preview.indexOf('http') !== 0) preview = 'https:' + preview;
+    }
 
-    var durEl = el.querySelector('span.time, .time');
-    var time  = durEl ? durEl.textContent.trim() : '';
-
-    var qualEl = el.querySelector('[class*="hd"], .hd-badge');
-    var qual   = qualEl ? 'HD' : '';
-
-    return { name: name, video: href, picture: picture, preview: preview,
-             time: time, quality: qual, json: true, related: true, model: null, source: NAME };
-  }
-
-  // Парсинг блока .video-item (Site Analyzer структура)
-  function _parseVideoItem(el) {
-    var titleEl = el.querySelector('.video-title');
-    var aEl     = el.querySelector('a');
-    if (!titleEl || !aEl) return null;
-
-    var name = titleEl.textContent.trim();
-    var href = aEl.getAttribute('href') || '';
-    if (!name || !href) return null;
-    if (href.indexOf('http') !== 0) href = HOST + href;
-
+    // --- Картинка ---
+    // img.img-responsive.lazy[data-original] (lazy-load)
     var imgEl   = el.querySelector('img');
-    var picture = imgEl ? (imgEl.getAttribute('data-original') || imgEl.getAttribute('src') || '') : '';
+    var picture = '';
+    if (imgEl) {
+      picture = imgEl.getAttribute('data-original') ||
+                imgEl.getAttribute('src')           || '';
+    }
+    if (picture && picture.indexOf('http') !== 0 && picture.length > 1) {
+      picture = 'https:' + picture;
+    }
 
-    var durEl   = el.querySelector('.time');
-    var time    = durEl ? durEl.textContent.trim() : '';
+    // --- Заголовок ---
+    // .video-title a → приоритет; fallback → a[title] на ссылке
+    var titleEl = el.querySelector('.video-title a');
+    if (!titleEl) titleEl = el.querySelector('.video-title');
+    var name = '';
+    if (titleEl) name = titleEl.textContent.trim();
+    if (!name)   name = (aEl.getAttribute('title') || '').trim();
+    if (!name)   return null;
 
-    var qualEl  = el.querySelector('[class*="hd"]');
+    // --- Длительность ---
+    // span.time содержит: <i class="fa fa-clock-o"></i>&nbsp;33:45
+    // textContent даёт: "\xa033:45" → убираем всё кроме цифр и ":"
+    var durEl = el.querySelector('span.time, .time');
+    var time  = '';
+    if (durEl) {
+      time = durEl.textContent.replace(/[^\d:]/g, '').trim();
+    }
 
-    return { name: name, video: href, picture: picture, preview: null,
-             time: time, quality: qualEl ? 'HD' : '', json: true, related: true, model: null, source: NAME };
+    // --- Качество ---
+    // span.i-hd (из анализатора: xpath "//span[contains(@class,'i-hd')]")
+    var qualEl  = el.querySelector('span.i-hd, [class*="i-hd"]');
+    var quality = qualEl ? 'HD' : '';
+
+    return {
+      name:    name,
+      video:   href,
+      picture: picture,
+      preview: preview,
+      time:    time,
+      quality: quality,
+      json:    true,    // AdultJS будет вызывать parser.qualities()
+      related: true,
+      model:   null,
+      source:  NAME,
+    };
   }
 
   // ----------------------------------------------------------
-  // [1.0.0] ПОЛУЧЕНИЕ ПРЯМОЙ ССЫЛКИ НА ВИДЕО
-  // Источник: AdultJS_debug [BLOCK:13] Youjizz view.regexMatch
+  // ИЗВЛЕЧЕНИЕ ВИДЕО СО СТРАНИЦЫ
   //
-  // Паттерн: "quality":"Auto","filename":"{value}"
-  // Формат:  "https:{value}"
+  // Из HTML страницы видео (5 карточки yjizz.txt — блок player):
   //
-  // Страница видео содержит JS-объект с источниками:
-  // {"quality":"Auto","filename":"//cdn.youjizz.com/.../video.m3u8"}
+  // Метод 1 (приоритет): JS-переменная encodings
+  //   encodings.reverse().forEach(function(encoding) {
+  //       src1.setAttribute('src', encoding.filename);   ← URL
+  //       src1.setAttribute('title', encoding.quality); ← "Auto","1080",...
+  //   });
+  //   → ищем: var encodings = [{quality:"...",filename:"//..."}]
+  //
+  // Метод 2: <source src title type="application/x-mpegURL">
+  //   <source src="//abre-videos.youjizz.com/...master.m3u8?..." title="Auto">
+  //   Качества: Auto, 1080, 720, 480, 360, 240
+  //
+  // Метод 3 (fallback): regex m3u8/mp4 от abre-videos/cdne-mobile
   // ----------------------------------------------------------
-  function getStreamLinks(videoPageUrl, success, error) {
+  function getVideoLinks(videoPageUrl, success, error) {
     httpGet(videoPageUrl, function (html) {
       var qualitys = {};
 
-      // Паттерн 1: "quality":"Auto","filename":"..." (из AdultJS_debug)
-      var re1 = /"quality":"Auto","filename":"([^"]+)"/;
-      var m1  = html.match(re1);
-      if (m1 && m1[1]) {
-        var url = m1[1];
-        if (!url.startsWith('http')) url = 'https:' + url;
-        qualitys['auto'] = url;
-      }
-
-      // Паттерн 2: конкретные качества "quality":"720p","filename":"..."
-      var re2  = /"quality":"([^"]+)","filename":"([^"]+)"/g;
-      var m2;
-      while ((m2 = re2.exec(html)) !== null) {
-        if (m2[1] === 'Auto') continue;
-        var qurl = m2[2];
-        if (!qurl.startsWith('http')) qurl = 'https:' + qurl;
-        qualitys[m2[1]] = qurl;
-      }
-
-      // Паттерн 3 (fallback): прямые .mp4 или .m3u8 в script
-      if (!Object.keys(qualitys).length) {
-        var re3 = /(https?:\/\/[^"'\s]+\.(mp4|m3u8)[^"'\s]*)/g;
-        var m3;
-        while ((m3 = re3.exec(html)) !== null) {
-          if (m3[1].includes('cdn') || m3[1].includes('youjizz')) {
-            qualitys['auto'] = m3[1];
-            break;
+      // --- Метод 1: var encodings = [...] ---
+      try {
+        // Паттерн: var encodings=[{"quality":"Auto","filename":"//..."}, ...]
+        // или:     encodings = [...]  (без var, внутри блока)
+        var reEnc = /\bencodings\s*=\s*($[\s\S]*?$)\s*[;,)]/;
+        var mEnc  = html.match(reEnc);
+        if (mEnc && mEnc[1]) {
+          var encodings = JSON.parse(mEnc[1]);
+          encodings.forEach(function (enc) {
+            if (!enc.filename || !enc.quality) return;
+            var u = enc.filename;
+            if (u.indexOf('http') !== 0) u = 'https:' + u;
+            qualitys[enc.quality] = u;
+          });
+          if (Object.keys(qualitys).length) {
+            console.log('[yjizz] qualitys via encodings:', Object.keys(qualitys));
           }
+        }
+      } catch (e) {
+        console.warn('[yjizz] encodings parse error:', e.message || e);
+      }
+
+      // --- Метод 2: <source src title> внутри <video> ---
+      if (!Object.keys(qualitys).length) {
+        try {
+          var doc     = new DOMParser().parseFromString(html, 'text/html');
+          var sources = doc.querySelectorAll('video source[src][title]');
+          for (var si = 0; si < sources.length; si++) {
+            var src   = sources[si].getAttribute('src')   || '';
+            var title = sources[si].getAttribute('title') || 'auto';
+            if (!src || src.indexOf('blob:') === 0) continue;
+            if (src.indexOf('http') !== 0) src = 'https:' + src;
+            qualitys[title] = src;
+          }
+          if (Object.keys(qualitys).length) {
+            console.log('[yjizz] qualitys via <source>:', Object.keys(qualitys));
+          }
+        } catch (e) {
+          console.warn('[yjizz] <source> parse error:', e.message || e);
         }
       }
 
-      if (!Object.keys(qualitys).length) { error('YouJizz: нет источников видео'); return; }
+      // --- Метод 3: regex — m3u8/mp4 от abre-videos или cdne-mobile ---
+      if (!Object.keys(qualitys).length) {
+        var re3 = /((?:https?:)?\/\/(?:abre-videos|cdne-mobile)\.youjizz\.com\/[^"'\s]+\.(?:m3u8|mp4)[^"'\s]*)/g;
+        var m3;
+        while ((m3 = re3.exec(html)) !== null) {
+          var u3 = m3[1];
+          if (u3.indexOf('http') !== 0) u3 = 'https:' + u3;
+          qualitys['auto'] = u3;
+          console.log('[yjizz] qualitys via regex fallback:', u3.substring(0, 80));
+          break;
+        }
+      }
+
+      if (!Object.keys(qualitys).length) {
+        error('YouJizz: видео не найдено на странице');
+        return;
+      }
+
       success({ qualitys: qualitys });
     }, error);
   }
 
   // ----------------------------------------------------------
-  // [1.0.0] РАЗБОР СОСТОЯНИЯ ИЗ URL
+  // МЕНЮ ФИЛЬТРА (по образцу xds_1.1.0)
+  //
+  // search_on:true → AdultJS показывает «Найти» в фильтре.
+  // После ввода AdultJS добавляет ?search=... к playlist_url.
   // ----------------------------------------------------------
-  function parseState(url) {
-    var path = url.replace(HOST, '').replace(/^\//, '');
-    var sort = '', cat = '', search = '';
+  function buildMenu() {
+    return [
+      {
+        title:        '🔍 Поиск',
+        search_on:    true,
+        playlist_url: NAME + '/search/',
+      },
+      {
+        title:        '🗂 Сортировка',
+        playlist_url: 'submenu',
+        submenu:      SORTS.map(function (s) {
+          return {
+            title:        s.title,
+            playlist_url: NAME + '/sort/' + s.val,
+          };
+        }),
+      },
+      {
+        title:        '📂 Категории',
+        playlist_url: 'submenu',
+        submenu:      CATS.map(function (c) {
+          return {
+            title:        c.title,
+            playlist_url: NAME + '/cat/' + c.val,
+          };
+        }),
+      },
+    ];
+  }
 
-    if (path.startsWith('search')) {
-      // /search?q=... или /search/{query}-{page}.html
-      var qm = path.match(/[?&]q=([^&]+)/);
-      if (qm) search = decodeURIComponent(qm[1]);
-      else {
-        var sm = path.match(/search\/([^-]+)/);
-        if (sm) search = decodeURIComponent(sm[1]);
+  // ----------------------------------------------------------
+  // РОУТЕР (по образцу xds_1.1.0 routeView)
+  //
+  // Форматы url из AdultJS:
+  //
+  //   1. 'yjizz'
+  //      → popular (стартовая страница)
+  //
+  //   2. 'yjizz/sort/most-popular'
+  //      → buildCatalogUrl('most-popular', page)
+  //
+  //   3. 'yjizz/cat/stepmom'
+  //      → buildCatUrl('stepmom', page)
+  //
+  //   4. 'yjizz/search/wife'  (клик по категории подменю)
+  //      → buildSearchUrl('wife', page)
+  //
+  //   5. 'yjizz/search/?search=wife'  (пользователь ввёл в фильтре)
+  //      → buildSearchUrl('wife', page)
+  // ----------------------------------------------------------
+  function parseSearchParam(url) {
+    var m = url.match(/[?&]search=([^&]*)/);
+    return m ? decodeURIComponent(m[1]) : null;
+  }
+
+  function routeLoad(url, page, success, error) {
+    console.log('[yjizz] routeLoad → "' + url + '" page=' + page);
+
+    var PREFIX_SORT  = NAME + '/sort/';
+    var PREFIX_CAT   = NAME + '/cat/';
+    var PREFIX_SRCH  = NAME + '/search/';
+
+    // Случай 5: ?search=query (фильтр-поиск)
+    var sq = parseSearchParam(url);
+    if (sq !== null) {
+      var q5 = sq.trim();
+      if (q5) {
+        fetchPage(buildSearchUrl(q5, page), page, success, error);
+      } else {
+        fetchPage(buildCatalogUrl(SORTS[0].val, page), page, success, error);
       }
-    } else if (path.startsWith('categories/')) {
-      // /categories/{name}-{page}.html
-      var cm = path.match(/categories\/([^-]+)/);
-      if (cm) cat = cm[1];
-    } else {
-      // /{sort}/{page}.html
-      var sm2 = path.split('/')[0];
-      if (sm2 && SORTS.find(function (s) { return s.val === sm2; })) sort = sm2;
+      return;
     }
 
-    return { sort: sort, cat: cat, search: search };
+    // Случай 2: yjizz/sort/{val}
+    if (url.indexOf(PREFIX_SORT) === 0) {
+      var sort = url.replace(PREFIX_SORT, '').split('?')[0].trim();
+      fetchPage(buildCatalogUrl(sort || SORTS[0].val, page), page, success, error);
+      return;
+    }
+
+    // Случай 3: yjizz/cat/{val}
+    if (url.indexOf(PREFIX_CAT) === 0) {
+      var cat = url.replace(PREFIX_CAT, '').split('?')[0].trim();
+      if (cat) {
+        fetchPage(buildCatUrl(cat, page), page, success, error);
+        return;
+      }
+    }
+
+    // Случай 4: yjizz/search/{query}
+    if (url.indexOf(PREFIX_SRCH) === 0) {
+      var rawQ = url.replace(PREFIX_SRCH, '').split('?')[0].trim();
+      if (rawQ) {
+        fetchPage(buildSearchUrl(decodeURIComponent(rawQ), page), page, success, error);
+        return;
+      }
+    }
+
+    // Случай 1: yjizz / неизвестное → popular
+    fetchPage(buildCatalogUrl(SORTS[0].val, page), page, success, error);
   }
 
   // ----------------------------------------------------------
-  // [1.0.0] МЕНЮ ФИЛЬТРА
+  // ЗАГРУЗКА СПИСКА КАРТОЧЕК
   // ----------------------------------------------------------
-  function buildMenu(url) {
-    var state   = parseState(url || '');
-    var sortObj = SORTS.find(function (s) { return s.val === state.sort; }) || SORTS[0];
-    var catObj  = CATS.find(function (c)  { return c.val === state.cat;  });
-
-    var items = [{ title: 'Поиск', playlist_url: HOST, search_on: true }];
-
-    items.push({
-      title:        'Сортировка: ' + sortObj.title,
-      playlist_url: 'submenu',
-      submenu:      SORTS.map(function (s) {
-        return { title: s.title, playlist_url: HOST + '/' + s.val + '/1.html' };
-      }),
-    });
-
-    items.push({
-      title:        'Категория: ' + (catObj ? catObj.title : 'Все'),
-      playlist_url: 'submenu',
-      submenu:      CATS.map(function (c) {
-        return { title: c.title, playlist_url: HOST + '/categories/' + c.val + '-1.html' };
-      }),
-    });
-
-    return items;
+  function fetchPage(loadUrl, page, success, error) {
+    console.log('[yjizz] fetchPage → ' + loadUrl);
+    httpGet(loadUrl, function (html) {
+      var results = parseCards(html);
+      if (!results.length) {
+        error('YouJizz: карточки не найдены');
+        return;
+      }
+      success({
+        results:     results,
+        collection:  true,
+        total_pages: results.length >= 20 ? page + 5 : page,
+        menu:        buildMenu(),
+      });
+    }, error);
   }
 
   // ----------------------------------------------------------
-  // [1.0.0] ПУБЛИЧНЫЙ ИНТЕРФЕЙС
+  // ПУБЛИЧНЫЙ ИНТЕРФЕЙС ПАРСЕРА
   // ----------------------------------------------------------
   var YjizzParser = {
 
+    // Главный экран (горизонтальные полосы в Sisi)
     main: function (params, success, error) {
-      httpGet(buildCatalogUrl(SORTS[0].val, 1), function (html) {
-        var results = parsePlaylist(html);
-        if (!results.length) { error('YouJizz: нет карточек'); return; }
-        success({ results: results, collection: true, total_pages: 30,
-                  menu: buildMenu(HOST + '/' + SORTS[0].val + '/1.html') });
-      }, error);
+      fetchPage(buildCatalogUrl(SORTS[0].val, 1), 1, success, error);
     },
 
+    // Каталог / категория / поиск через фильтр (View)
     view: function (params, success, error) {
-      var rawUrl = (params.url || HOST).replace(/[?&]pg=\d+/, '');
-      var page   = parseInt(params.page, 10) || 1;
-      var state  = parseState(rawUrl);
-      var loadUrl;
+      var page = parseInt(params.page, 10) || 1;
+      var url  = params.url || NAME;
+      routeLoad(url, page, success, error);
+    },
 
-      if (state.search) {
-        loadUrl = buildSearchUrl(state.search, page);
-      } else if (state.cat) {
-        loadUrl = buildCatUrl(state.cat, page);
-      } else {
-        loadUrl = buildCatalogUrl(state.sort || SORTS[0].val, page);
+    // Глобальный поиск через строку Lampa
+    search: function (params, success, error) {
+      var query = (params.query || '').trim();
+      var page  = parseInt(params.page, 10) || 1;
+
+      if (!query) {
+        success({ title: '', results: [], collection: true, total_pages: 1 });
+        return;
       }
 
-      httpGet(loadUrl, function (html) {
-        var results = parsePlaylist(html);
-        if (!results.length) { error('YouJizz: нет карточек'); return; }
-        success({
-          results:     results,
-          collection:  true,
-          total_pages: results.length >= 20 ? page + 5 : page,
-          menu:        buildMenu(rawUrl),
-        });
+      fetchPage(buildSearchUrl(query, page), page, function (data) {
+        data.title = 'YouJizz: ' + query;
+        data.url   = NAME + '/search/' + encodeURIComponent(query);
+        success(data);
       }, error);
     },
 
-    search: function (params, success, error) {
-      var query = params.query || '';
-      var page  = parseInt(params.page, 10) || 1;
-      httpGet(buildSearchUrl(query, page), function (html) {
-        var results = parsePlaylist(html);
-        if (!results.length) { error('YouJizz: ничего не найдено'); return; }
-        success({
-          title:       'YouJizz: ' + query,
-          results:     results,
-          url:         HOST + '/search?q=' + encodeURIComponent(query),
-          collection:  true,
-          total_pages: page + 5,
-        });
-      }, error);
-    },
-
-    qualitys: function (videoUrl, success, error) {
-      getStreamLinks(videoUrl, success, error);
+    // Получение прямых ссылок на видео
+    // Вызывается AdultJS когда element.json === true
+    qualities: function (videoUrl, success, error) {
+      getVideoLinks(videoUrl, success, error);
     },
   };
 
   // ----------------------------------------------------------
-  // [1.0.0] РЕГИСТРАЦИЯ
+  // РЕГИСТРАЦИЯ
   // ----------------------------------------------------------
   function tryRegister() {
-    if (window.AdultPlugin && typeof window.AdultPlugin.registerParser === 'function') {
+    if (window.AdultPlugin &&
+        typeof window.AdultPlugin.registerParser === 'function') {
       window.AdultPlugin.registerParser(NAME, YjizzParser);
-      console.log('[yjizz] v1.0.0 registered OK');
+      console.log('[yjizz] v2.0.0 зарегистрирован OK');
       return true;
     }
     return false;
   }
 
   if (!tryRegister()) {
-    var _e = 0, _t = setInterval(function () {
-      _e += 100;
-      if (tryRegister() || _e >= 10000) clearInterval(_t);
+    var _elapsed = 0;
+    var _poll = setInterval(function () {
+      _elapsed += 100;
+      if (tryRegister() || _elapsed >= 10000) clearInterval(_poll);
     }, 100);
   }
 
