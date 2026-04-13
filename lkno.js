@@ -1,13 +1,12 @@
 // =============================================================
 // lkno.js — Lenkino Parser для AdultJS
-// Version  : 1.2.0
+// Version  : 1.3.0
 // Changes  :
-//   [1.2.0] Стартовая страница → / (корень сайта)
-//           Пагинация → /page/N (без trailing slash)
-//           Категории → /{slug} (без trailing slash)
-//           Поиск → /?q={query}&page=N
-//           Убран несуществующий slug top-porno из CATS
-//           Фильтрация внешних ссылок в parseHtml
+//   [1.3.0] MP4 берётся из data-preview прямо в карточке
+//           qualities() не делает доп. запрос если URL уже MP4
+//           title берётся из .itm-tit (чище чем alt)
+//           duration из .itm-dur
+//           poster берётся из img[src]
 // =============================================================
 
 (function () {
@@ -17,7 +16,7 @@
   var BASE_URL = 'https://wes.lenkino.adult';
 
   // ----------------------------------------------------------
-  // КАТЕГОРИИ (top-porno удалён — возвращает 404)
+  // КАТЕГОРИИ
   // ----------------------------------------------------------
   var CATS = [
     { title: '🇷🇺 Русское',        val: 'a1-russian'  },
@@ -51,7 +50,6 @@
     return url;
   }
 
-  // Только ссылки нашего сайта — фильтрует рекламные карточки
   function isInternalUrl(url) {
     return url && url.indexOf(BASE_URL) === 0;
   }
@@ -59,11 +57,6 @@
   // ----------------------------------------------------------
   // ПОСТРОЕНИЕ URL
   // ----------------------------------------------------------
-  // Примеры:
-  //   buildListUrl('', 1)            → https://wes.lenkino.adult/
-  //   buildListUrl('', 2)            → https://wes.lenkino.adult/page/2
-  //   buildListUrl('a1-russian', 1)  → https://wes.lenkino.adult/a1-russian
-  //   buildListUrl('a1-russian', 2)  → https://wes.lenkino.adult/a1-russian/page/2
   function buildListUrl(slug, page) {
     page = parseInt(page, 10) || 1;
     if (!slug) {
@@ -76,9 +69,6 @@
       : BASE_URL + '/' + slug + '/page/' + page;
   }
 
-  // Примеры:
-  //   buildSearchUrl('wife', 1)  → https://wes.lenkino.adult/?q=wife
-  //   buildSearchUrl('wife', 2)  → https://wes.lenkino.adult/?q=wife&page=2
   function buildSearchUrl(query, page) {
     page = parseInt(page, 10) || 1;
     var url = BASE_URL + '/?q=' + encodeURIComponent(query);
@@ -118,28 +108,41 @@
 
     for (var i = 0; i < items.length; i++) {
       var item   = items[i];
-      var linkEl = item.querySelector('a');
+      var linkEl = item.querySelector('a.len_pucl');
       var imgEl  = item.querySelector('img');
+      var titEl  = item.querySelector('.itm-tit');
+      var durEl  = item.querySelector('.itm-dur');
 
       if (!linkEl || !imgEl) continue;
 
       var href = fixUrl(linkEl.getAttribute('href') || '');
 
-      // Отсекаем рекламные и внешние карточки (например tlenporno.com)
+      // Фильтруем внешние/рекламные карточки
       if (!isInternalUrl(href)) continue;
 
-      var title  = (imgEl.getAttribute('alt') || linkEl.textContent || '').trim();
-      var poster = fixUrl(
-        imgEl.getAttribute('data-src') ||   // lazy-load
-        imgEl.getAttribute('src')      || ''
-      );
-
+      // Чистый title из .itm-tit, fallback → alt
+      var title = '';
+      if (titEl) title = titEl.textContent.trim();
+      if (!title) title = (imgEl.getAttribute('alt') || '').trim();
       if (!title) continue;
+
+      // Постер
+      var poster = fixUrl(imgEl.getAttribute('src') || '');
+
+      // ★ MP4 прямо из карточки — data-preview
+      var mp4Url = fixUrl(imgEl.getAttribute('data-preview') || '');
+
+      // Длительность
+      var duration = durEl ? durEl.textContent.trim() : '';
 
       results.push({
         name:             title,
+        title:            title,
+        duration:         duration,
         url:              href,
-        video:            href,
+        // ★ Если есть data-preview (MP4) — используем его,
+        //   иначе URL страницы видео
+        video:            mp4Url || href,
         picture:          poster,
         img:              poster,
         poster:           poster,
@@ -187,16 +190,16 @@
         return;
       }
       success({
-        results:    results,
-        collection: true,
+        results:     results,
+        collection:  true,
         total_pages: 50,
-        menu:       buildMenu()
+        menu:        buildMenu()
       });
     }, error);
   }
 
   // ----------------------------------------------------------
-  // ВСПОМОГАТЕЛЬНЫЙ РОУТЕР
+  // РОУТЕР
   // ----------------------------------------------------------
   function parseSearchParam(url) {
     var m = url.match(/[?&]search=([^&]*)/);
@@ -208,7 +211,6 @@
   // ----------------------------------------------------------
   var LenkinoParser = {
 
-    // Стартовая страница → корень сайта /
     main: function (params, success, error) {
       fetchList(buildListUrl('', 1), success, error);
     },
@@ -219,14 +221,14 @@
 
       console.log('[lkno] view → "' + url + '" page=' + page);
 
-      // 1) ?search=запрос (фильтр AdultJS)
+      // 1) ?search=
       var sq = parseSearchParam(url);
       if (sq !== null) {
         fetchList(buildSearchUrl(sq.trim(), page), success, error);
         return;
       }
 
-      // 2) lkno/cat/milf-porn → /milf-porn или /milf-porn/page/2
+      // 2) lkno/cat/slug
       if (url.indexOf(NAME + '/cat/') === 0) {
         var cat = url.replace(NAME + '/cat/', '').split('?')[0].trim();
         if (cat) {
@@ -235,7 +237,7 @@
         }
       }
 
-      // 3) lkno/search/wife → /?q=wife
+      // 3) lkno/search/query
       if (url.indexOf(NAME + '/search/') === 0) {
         var rawQ = url.replace(NAME + '/search/', '').split('?')[0].trim();
         if (rawQ) {
@@ -244,7 +246,7 @@
         }
       }
 
-      // 4) По умолчанию → главная страница /
+      // 4) По умолчанию → главная
       fetchList(buildListUrl('', page), success, error);
     },
 
@@ -264,17 +266,27 @@
       }, error);
     },
 
-    qualities: function (videoPageUrl, success, error) {
-      console.log('[lkno] qualities →', videoPageUrl);
+    // ★ ГЛАВНОЕ ИСПРАВЛЕНИЕ:
+    //   Если videoUrl уже является MP4 (из data-preview) —
+    //   возвращаем напрямую без запроса к странице видео.
+    //   Fallback: запрашиваем страницу и ищем MP4 паттерном.
+    qualities: function (videoUrl, success, error) {
+      console.log('[lkno] qualities →', videoUrl);
 
-      request(videoPageUrl, function (html) {
-        // Паттерны поиска MP4 в порядке приоритета
+      // ★ MP4 URL напрямую — дополнительный запрос не нужен
+      if (videoUrl && /\.mp4\/?/i.test(videoUrl)) {
+        var cleanUrl = videoUrl.replace(/\/$/, '') + '/';
+        console.log('[lkno] MP4 из карточки:', cleanUrl.substring(0, 80));
+        success({ '720p': cleanUrl });
+        return;
+      }
+
+      // Fallback: запрос к странице видео
+      console.log('[lkno] запрос страницы видео:', videoUrl);
+      request(videoUrl, function (html) {
         var patterns = [
-          // Основной паттерн Lenkino: /get_file/.../xxx.mp4/
           /["'](https?:\/\/[^"']*\/get_file\/[^"']*\.mp4\/?)[^"']*/i,
-          // Любой MP4 в кавычках
           /"(https?:\/\/[^"]+?\.mp4[^"]*?)"/i,
-          // Fallback без кавычек
           /(https?:\/\/\S+\.mp4\/?)/i
         ];
 
@@ -282,25 +294,23 @@
           var match = html.match(patterns[p]);
           if (match && match[1]) {
             var cleanUrl = match[1].replace(/\\/g, '').replace(/\/$/, '') + '/';
-            console.log('[lkno] MP4 найден:', cleanUrl.substring(0, 80));
+            console.log('[lkno] MP4 со страницы:', cleanUrl.substring(0, 80));
             success({ '720p': cleanUrl });
             return;
           }
         }
 
-        // Fallback: тег <video>
-        var container = document.createElement('div');
-        container.innerHTML = html;
-        var srcEl = container.querySelector('video source[src], video[src]');
+        // Последний fallback: тег <video>
+        var c = document.createElement('div');
+        c.innerHTML = html;
+        var srcEl = c.querySelector('video source[src], video[src]');
         var streamUrl = srcEl
           ? (srcEl.getAttribute('src') || srcEl.getAttribute('data-src') || '')
           : '';
 
         if (streamUrl) {
-          console.log('[lkno] source тег найден:', streamUrl.substring(0, 80));
           success({ 'Auto': fixUrl(streamUrl) });
         } else {
-          console.log('[lkno] видео не найдено на:', videoPageUrl);
           error('Видео не найдено на странице');
         }
       }, error);
@@ -313,7 +323,7 @@
   function tryRegister() {
     if (window.AdultPlugin && typeof window.AdultPlugin.registerParser === 'function') {
       window.AdultPlugin.registerParser(NAME, LenkinoParser);
-      console.log('[lkno] v1.2.0 зарегистрирован OK');
+      console.log('[lkno] v1.3.0 зарегистрирован OK');
       return true;
     }
     return false;
