@@ -1,258 +1,202 @@
 // =============================================================
-// lkno.js — Парсер Lenkino для AdultJS / AdultPlugin (Lampa)
-// Version  : 1.1.0
-// Changed  : [1.0.0] Исходный вариант (lkno.js загруженный)
-//            [1.1.0] FIX: net.ajax() не существует в Lampa.Reguest.
-//                    Правильный метод: net.silent() с {dataType:'text'}.
-//            [1.1.0] FIX: $(html) для парсинга — вызывает загрузку img/
-//                    script в WebView → подвешивает UI на Android TV.
-//                    Заменён на DOMParser (безопасный, без сетевых запросов).
-//            [1.1.0] FIX: host 'https://lenkino.guru' — устаревший домен.
-//                    Актуальный: 'https://wes.lenkino.adult'
-//                    (из AdultJS_debug_v1.3.2 [BLOCK:13] конфиг Lenkino).
-//            [1.1.0] FIX: CSS-класс '.movie-item' не соответствует
-//                    реальной HTML-структуре. По данным AdultJS_debug:
-//                    contentParse.nodes = "//div[@class='item']".
-//                    Используем div.item + XPath через DOMParser.
-//            [1.1.0] FIX: регистрация добавила polling.
-//            [1.1.0] FIX: добавлен fetchHtml с правильным fallback.
+// lkno.js — Lenkino Parser для AdultJS
+// Version  : 1.0.0
+// Based on : Lenkino (wes.lenkino.adult)
+// Structure: xds_1.1.0 pattern
 // =============================================================
 
 (function () {
   'use strict';
 
-  // ----------------------------------------------------------
-  // [1.1.0] КОНФИГУРАЦИЯ
-  // БАГ v1.0.0: устаревший домен lenkino.guru
-  // ИСПРАВЛЕНИЕ: wes.lenkino.adult (из AdultJS_debug [BLOCK:13])
-  // ----------------------------------------------------------
-  var HOST = 'https://wes.lenkino.adult';
-  var NAME = 'lkno';
-
-  var CATEGORIES = [
-    { title: 'Новое',          url: HOST + '/page/{page}'              },
-    { title: 'Лучшие',         url: HOST + '/top-porno/page/{page}'    },
-    { title: 'Горячие',        url: HOST + '/hot-porno/page/{page}'    },
-    { title: 'Русское порно',  url: HOST + '/a1-russian/page/{page}'   },
-    { title: 'Порно зрелых',   url: HOST + '/milf-porn/page/{page}'    },
-    { title: 'Анал',           url: HOST + '/anal-porno/page/{page}'   },
-    { title: 'Большие сиськи', url: HOST + '/big-tits/page/{page}'     },
-    { title: 'Лесби',          url: HOST + '/lesbi-porno/page/{page}'  },
-    { title: 'Минет',          url: HOST + '/blowjob/page/{page}'      },
-    { title: 'Хардкор',        url: HOST + '/hardcore/page/{page}'     },
-  ];
+  var NAME     = 'lkno';
+  var BASE_URL = 'https://wes.lenkino.adult';
 
   // ----------------------------------------------------------
-  // [1.1.0] HTTP-ХЕЛПЕР
-  //
-  // БАГ v1.0.0: net.ajax() — метода нет в Lampa.Reguest.
-  // ИСПРАВЛЕНИЕ: net.silent() с { dataType:'text' }.
+  // УТИЛИТЫ И КОРРЕКТИРОВКА ССЫЛОК
   // ----------------------------------------------------------
-  function fetchHtml(url, success, error) {
-    try {
-      var net = new Lampa.Reguest();
-      net.silent(
-        url,
-        function (data) {
-          if (typeof data === 'string' && data.length > 50) {
-            success(data);
-          } else {
-            _fetchFallback(url, success, error);
-          }
-        },
-        function () { _fetchFallback(url, success, error); },
-        false,
-        { dataType: 'text', timeout: 10000 }
-      );
-    } catch (e) {
-      _fetchFallback(url, success, error);
+  function fixUrl(url) {
+    if (!url) return '';
+    if (url.indexOf('//') === 0) return 'https:' + url;
+    if (url.indexOf('/') === 0) return BASE_URL + url;
+    return url;
+  }
+
+  // ----------------------------------------------------------
+  // СЕТЕВОЙ ЗАПРОС (ЧЕРЕЗ ADULTJS NETWORK)
+  // ----------------------------------------------------------
+  function request(url, onSuccess, onError) {
+    if (window.AdultPlugin && typeof window.AdultPlugin.networkRequest === 'function') {
+      window.AdultPlugin.networkRequest(url, onSuccess, onError);
+    } else {
+      // Fallback если плагин еще не прогрузил метод
+      var xhr = new XMLHttpRequest();
+      xhr.open('GET', url, true);
+      xhr.onreadystatechange = function () {
+        if (xhr.readyState === 4) {
+          if (xhr.status === 200) onSuccess(xhr.responseText);
+          else onError('HTTP ' + xhr.status);
+        }
+      };
+      xhr.send();
     }
   }
 
-  function _fetchFallback(url, success, error) {
-    if (typeof fetch === 'undefined') { error('fetch unavailable'); return; }
-    fetch(url, { method: 'GET' })
-      .then(function (r) {
-        if (!r.ok) throw new Error('HTTP ' + r.status);
-        return r.text();
-      })
-      .then(success)
-      .catch(error);
-  }
-
   // ----------------------------------------------------------
-  // [1.1.0] ПОСТРОЕНИЕ URL С ПАГИНАЦИЕЙ
-  // Lenkino использует /page/{N}/ в шаблоне URL
+  // ПАРСИНГ HTML КОНТЕНТА
   // ----------------------------------------------------------
-  function buildUrl(template, page) {
-    return template.replace('{page}', page || 1);
-  }
+  function parseHtml(html, query) {
+    var results = [];
+    var container = document.createElement('div');
+    container.innerHTML = html;
 
-  function getBaseTemplate(url) {
-    // Убираем страницу из текущего URL если есть
-    return url.replace(/\/page\/\d+\/?$/, '') + '/page/{page}';
-  }
+    // Согласно 6 json.txt: cardSelector = ".item"
+    var items = container.querySelectorAll('.item');
 
-  // ----------------------------------------------------------
-  // [1.1.0] ПАРСЕР КАРТОЧЕК
-  //
-  // БАГ v1.0.0: $(html) — jQuery парсит HTML и загружает все ресурсы.
-  //   На Android TV это подвешивает UI.
-  // ИСПРАВЛЕНИЕ: DOMParser — безопасный парсинг без сетевых запросов.
-  //
-  // БАГ v1.0.0: '.movie-item' — неверный CSS-класс.
-  // ИСПРАВЛЕНИЕ: 'div.item' (из AdultJS_debug contentParse.nodes).
-  //
-  // Структура карточки Lenkino (div.item):
-  //   .itm-tit a    → название + ссылка
-  //   img.lzy       → data-srcset (картинка) + data-preview (превью)
-  //   .itm-dur      → длительность
-  //   .itm-opt-mdl  → ссылка на модель
-  // ----------------------------------------------------------
-  function parsePlaylist(html) {
-    var doc   = new DOMParser().parseFromString(html, 'text/html');
-    var items = [];
+    for (var i = 0; i < items.length; i++) {
+      var item = items[i];
+      var linkEl = item.querySelector('a');
+      var imgEl  = item.querySelector('img');
 
-    doc.querySelectorAll('div.item').forEach(function (el) {
-      // Заголовок и ссылка
-      var linkEl = el.querySelector('.itm-tit a, .item-title a, a.preview_link');
-      if (!linkEl) return;
+      if (!linkEl || !imgEl) continue;
 
-      var name = (linkEl.getAttribute('title') || linkEl.textContent || '').trim();
-      var href = linkEl.getAttribute('href') || '';
-      if (!name || !href) return;
+      var title = imgEl.getAttribute('alt') || linkEl.textContent.trim() || 'Video';
+      var videoPageUrl = fixUrl(linkEl.getAttribute('href'));
+      var poster = fixUrl(imgEl.getAttribute('src') || imgEl.getAttribute('data-src'));
 
-      // Полный URL
-      var videoUrl = href.indexOf('http') === 0 ? href : HOST + href;
-
-      // Картинка: data-srcset или data-src или src
-      var imgEl   = el.querySelector('img.lzy, img[data-srcset], img[data-src], img');
-      var picture = '';
-      var preview = '';
-      if (imgEl) {
-        picture = imgEl.getAttribute('data-srcset') ||
-                  imgEl.getAttribute('data-src')    ||
-                  imgEl.getAttribute('src')         || '';
-        preview = imgEl.getAttribute('data-preview') || '';
-        if (picture && picture.indexOf('http') !== 0) picture = HOST + picture;
-        if (preview && preview.indexOf('http') !== 0) preview = HOST + preview;
-      }
-
-      // Длительность
-      var durEl    = el.querySelector('.itm-dur, .itm-dur.fnt-cs, .item-duration, .duration');
-      var duration = durEl ? durEl.textContent.trim() : '';
-
-      // Качество
-      var qualEl   = el.querySelector('.itm-hd, .hd-mark, .quality');
-      var quality  = qualEl ? qualEl.textContent.trim() : 'HD';
-
-      items.push({
-        name:    name,
-        video:   videoUrl,  // страница видео; json:true → нужен второй запрос
-        picture: picture,
-        preview: preview,
-        time:    duration,
-        quality: quality,
-        json:    true,      // нужен переход на страницу для извлечения плеера
-        related: true,
-        model:   null,
-        source:  NAME,
+      results.push({
+        name: title,
+        url: videoPageUrl,      // Страница видео
+        video: videoPageUrl,    // В AdultJS это триггерит загрузку парсера для поиска mp4
+        picture: poster,
+        img: poster,
+        source: NAME,
+        json: true             // Указываем, что видео-ссылку нужно "добыть" через qualities()
       });
-    });
+    }
 
-    return items;
+    return results;
   }
 
   // ----------------------------------------------------------
-  // [1.1.0] ПОСТРОЕНИЕ МЕНЮ ФИЛЬТРА
+  // МЕНЮ
   // ----------------------------------------------------------
-  function buildMenu(currentUrl) {
-    var items = CATEGORIES.map(function (cat) {
-      return {
-        title:        cat.title,
-        playlist_url: buildUrl(cat.url, 1),
-        selected:     currentUrl && currentUrl.indexOf(cat.url.replace('/page/{page}', '')) !== -1,
-      };
-    });
-
-    // Добавляем поиск
-    items.unshift({
-      title:        'Поиск',
-      playlist_url: HOST + '/index.php?do=search&subaction=search&story=',
-      search_on:    true,
-    });
-
-    return items;
+  function buildMenu() {
+    return [
+      {
+        title: '🔍 ' + (Lampa.Lang ? Lampa.Lang.translate('search') : 'Поиск'),
+        search_on: true,
+        playlist_url: NAME + '/search/'
+      },
+      {
+        title: '🔥 Популярное',
+        playlist_url: NAME + '/popular'
+      }
+    ];
   }
 
   // ----------------------------------------------------------
-  // [1.0.0] ПУБЛИЧНЫЙ ИНТЕРФЕЙС
+  // FETCH ФУНКЦИИ
   // ----------------------------------------------------------
-  var LknoParser = {
+  function fetchList(url, query, success, error) {
+    request(url, function (html) {
+      var items = parseHtml(html, query);
+      success({
+        results: items,
+        collection: true,
+        total_pages: 10, // Lenkino имеет много страниц
+        menu: buildMenu()
+      });
+    }, error);
+  }
 
+  // ----------------------------------------------------------
+  // ИНТЕРФЕЙС ПАРСЕРА
+  // ----------------------------------------------------------
+  var LenkinoParser = {
     main: function (params, success, error) {
-      var url = buildUrl(CATEGORIES[0].url, 1);
-      fetchHtml(url, function (html) {
-        var results = parsePlaylist(html);
-        if (!results.length) { error('Lenkino: нет карточек'); return; }
-        success({ results: results, collection: true, total_pages: 50, menu: buildMenu(url) });
-      }, error);
+      fetchList(BASE_URL + '/', 'Главная', success, error);
     },
 
     view: function (params, success, error) {
-      var page    = parseInt(params.page, 10) || 1;
-      var rawUrl  = params.url || buildUrl(CATEGORIES[0].url, 1);
-      // Нормализуем: убираем pg= от Lampa, строим правильный URL с /page/N/
-      var baseUrl = rawUrl.replace(/\/page\/\d+\/?/, '').replace(/[?&]pg=\d+/, '');
-      var loadUrl = baseUrl.replace(/\/$/, '') + '/page/' + page + '/';
+      var page = params.page || 1;
+      var url = params.url || '';
+      var finalUrl = BASE_URL;
 
-      fetchHtml(loadUrl, function (html) {
-        var results = parsePlaylist(html);
-        if (!results.length) { error('Lenkino: нет карточек на стр. ' + page); return; }
-        success({
-          results:     results,
-          collection:  true,
-          total_pages: results.length > 0 ? page + 10 : page,
-          menu:        buildMenu(rawUrl),
-        });
-      }, error);
+      // Логика роутинга URL (поиск или категория)
+      if (url.indexOf('search=') !== -1) {
+        var query = url.split('search=')[1];
+        finalUrl = BASE_URL + '/?q=' + query;
+      } else if (url.indexOf('/search/') !== -1) {
+        var queryPath = url.split('/search/')[1];
+        if (queryPath) finalUrl = BASE_URL + '/?q=' + queryPath;
+      }
+
+      // Пагинация (согласно 6 json.txt паттерн /page/N)
+      if (page > 1) {
+        finalUrl += (finalUrl.indexOf('?') !== -1 ? '&' : '/?') + 'page=' + page;
+      }
+
+      fetchList(finalUrl, 'Каталог', success, error);
     },
 
     search: function (params, success, error) {
-      var url = HOST + '/index.php?do=search&subaction=search&story='
-              + encodeURIComponent(params.query || '');
-      fetchHtml(url, function (html) {
-        var results = parsePlaylist(html);
-        if (!results.length) { error('Lenkino: ничего не найдено'); return; }
-        success({
-          title:       'Lenkino: ' + params.query,
-          results:     results,
-          url:         url,
-          collection:  true,
-          total_pages: 10,
-        });
+      var query = (params.query || '').trim();
+      if (!query) return success({ results: [] });
+
+      var url = BASE_URL + '/?q=' + encodeURIComponent(query);
+      fetchList(url, query, function (data) {
+        data.title = 'Lenkino: ' + query;
+        success(data);
       }, error);
     },
+
+    // Метод для получения прямой ссылки на MP4 со страницы видео
+    qualities: function (videoPageUrl, success, error) {
+      request(videoPageUrl, function (html) {
+        // Поиск MP4 ссылки в HTML (согласно pattern из 6 json.txt)
+        // Ищем паттерн /get_file/.../*.mp4/
+        var mp4Regex = /"(https?:\/\/[^"]+?\.mp4[^"]*?)"/i;
+        var match = html.match(mp4Regex);
+
+        if (match && match[1]) {
+          var cleanUrl = match[1].replace(/\\/g, '');
+          success({
+            qualities: {
+              '720p': cleanUrl
+            }
+          });
+        } else {
+          // Если не нашли регуляркой, пытаемся найти в тегах source
+          var container = document.createElement('div');
+          container.innerHTML = html;
+          var source = container.querySelector('video source, video[src]');
+          var streamUrl = source ? (source.getAttribute('src') || source.getAttribute('data-src')) : '';
+
+          if (streamUrl) {
+            success({ qualities: { 'Auto': fixUrl(streamUrl) } });
+          } else {
+            error('Видео не найдено на странице');
+          }
+        }
+      }, error);
+    }
   };
 
   // ----------------------------------------------------------
-  // [1.1.0] РЕГИСТРАЦИЯ с polling
+  // РЕГИСТРАЦИЯ ПАРСЕРА
   // ----------------------------------------------------------
   function tryRegister() {
     if (window.AdultPlugin && typeof window.AdultPlugin.registerParser === 'function') {
-      window.AdultPlugin.registerParser(NAME, LknoParser);
-      console.log('[lkno] v1.1.0 registered OK');
+      window.AdultPlugin.registerParser(NAME, LenkinoParser);
       return true;
     }
     return false;
   }
 
   if (!tryRegister()) {
-    var _elapsed = 0;
     var _poll = setInterval(function () {
-      _elapsed += 100;
-      if (tryRegister() || _elapsed >= 10000) clearInterval(_poll);
-    }, 100);
+      if (tryRegister()) clearInterval(_poll);
+    }, 200);
   }
 
 })();
