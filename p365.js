@@ -159,55 +159,35 @@
     // ----------------------------------------------------------
   // ИЗВЛЕЧЕНИЕ ВИДЕО (QUALITIES) — ПОЛНАЯ ВЕРСИЯ
   // ----------------------------------------------------------
-  function getQualities(videoUrl, success, error) {
+    function getQualities(videoUrl, success, error) {
     httpGet(videoUrl, function (html) {
       var q = {};
 
-      // 1. Поиск ссылок в коде плеера (HLS, High, Low)
+      // 1. Поиск в стандартных функциях плеера
       var hlsMatch  = html.match(/setVideoHlsUrl\(['"]([^'"]+)['"]/);
       var highMatch = html.match(/setVideoUrlHigh\(['"]([^'"]+)['"]/);
-      var lowMatch  = html.match(/setVideoUrlLow\(['"]([^'"]+)['"]/);
+      
+      if (hlsMatch)  q['HLS'] = hlsMatch[1];
+      if (highMatch) q['720p'] = highMatch[1];
 
-      if (hlsMatch)  q['HLS (Auto)'] = hlsMatch[1];
-      if (highMatch) q['720p (MP4)'] = highMatch[1];
-      if (lowMatch)  q['480p (MP4)'] = lowMatch[1];
-
-      // 2. Обработка и лечение ссылок
-      for (var key in q) {
-        var link = q[key].replace(/\\\//g, '/').trim();
-
-        // --- ЛЕЧЕНИЕ ОШИБКИ 1016 (Broken DNS) ---
-        // Если сайт подсовывает мертвый сервер wes.porno365tube.win, 
-        // мы заменяем его на основной рабочий домен top.porno365tube.win
-        if (link.indexOf('wes.porno365tube.win') !== -1) {
-            console.log('[p365] Fix 1016 Error: replacing wes. with top.');
-            link = link.replace('wes.porno365tube.win', 'top.porno365tube.win');
-        }
-
-        // --- ГАРАНТИЯ ПРОТОКОЛА ---
-        if (link.indexOf('http') !== 0) {
-          if (link.indexOf('//') === 0) {
-            link = 'https:' + link;
-          } else {
-            // Если ссылка относительная, приклеиваем HOST
-            link = HOST + (link.startsWith('/') ? '' : '/') + link;
-          }
-        }
-        
-        q[key] = link;
+      // 2. ДОБАВЛЕНО: Поиск прямой ссылки в мета-тегах или контенте (vids69.com)
+      // Этот паттерн вытащит ссылку: https://uch3.vids69.com/content/.../10147_720.mp4
+      var vids69Match = html.match(/content=["'](https?:\/\/uch3\.vids69\.com\/[^"']+\.mp4)["']/);
+      if (vids69Match) {
+          q['720p (Direct)'] = vids69Match[1];
       }
 
-      // 3. Финальная проверка результата
+      // 3. Обработка и чистка
+      for (var key in q) {
+        q[key] = q[key].replace(/\\\//g, '/').trim();
+        // Если ссылка без протокола
+        if (q[key].indexOf('//') === 0) q[key] = 'https:' + q[key];
+      }
+
       if (Object.keys(q).length > 0) {
         success({ qualities: q });
       } else {
-        // Резервный поиск любого mp4 на странице, если основные паттерны не сработали
-        var anyMp4 = html.match(/https?:\/\/[^"'\s]+\.mp4[^"'\s]*/);
-        if (anyMp4) {
-          success({ qualities: { 'SD': anyMp4[0] } });
-        } else {
-          error('Видео не найдено. Возможно, зеркало сайта изменилось.');
-        }
+        error('Видео-файл на vids69 не найден');
       }
     }, error);
   }
