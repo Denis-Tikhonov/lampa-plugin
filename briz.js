@@ -66,16 +66,18 @@
   function buildBrizUrl(path, page, query) {
     var url = HOST + '/';
     if (query) {
-      url += '?q=' + encodeURIComponent(query);
+        // Формируем путь /search/запрос/
+        url += 'search/' + encodeURIComponent(query) + '/';
     } else if (path && path !== NAME) {
-      url += path + '/';
+        url += path + '/';
     }
     
     if (page > 1) {
-      url += (url.indexOf('?') > -1 ? '&' : '?') + 'page=' + page;
+        // Если есть пагинация, добавляем её
+        url += '?page=' + page;
     }
     return url;
-  }
+ }
 
   // ----------------------------------------------------------
   // ПАРСИНГ КАРТОЧЕК
