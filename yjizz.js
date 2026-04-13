@@ -287,7 +287,7 @@
       // quality: число (240,360,480,720,1080) или строка "Auto"
       // filename: "//abre-videos.youjizz.com/...master.m3u8?..."
       try {
-    var reEnc = /\bdataEncodings\s*=\s*($[\s\S]*?$)\s*;/;
+    var reEnc = new RegExp('dataEncodings\\s*=\\s*(\$[\\s\\S]*?\$)\\s*;');
     var mEnc  = html.match(reEnc);
     if (mEnc && mEnc[1]) {
         var dataEnc = JSON.parse(mEnc[1]);
