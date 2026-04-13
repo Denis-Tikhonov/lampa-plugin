@@ -156,33 +156,58 @@
   // ----------------------------------------------------------
   // ИЗВЛЕЧЕНИЕ ВИДЕО (QUALITIES)
   // ----------------------------------------------------------
+    // ----------------------------------------------------------
+  // ИЗВЛЕЧЕНИЕ ВИДЕО (QUALITIES) — ПОЛНАЯ ВЕРСИЯ
+  // ----------------------------------------------------------
   function getQualities(videoUrl, success, error) {
     httpGet(videoUrl, function (html) {
       var q = {};
 
-      // 1. Поиск в JS-функциях плеера
+      // 1. Поиск ссылок в коде плеера (HLS, High, Low)
       var hlsMatch  = html.match(/setVideoHlsUrl\(['"]([^'"]+)['"]/);
       var highMatch = html.match(/setVideoUrlHigh\(['"]([^'"]+)['"]/);
       var lowMatch  = html.match(/setVideoUrlLow\(['"]([^'"]+)['"]/);
 
-      if (hlsMatch)  q['HLS'] = hlsMatch[1];
-      if (highMatch) q['720p'] = highMatch[1];
-      if (lowMatch)  q['480p'] = lowMatch[1];
+      if (hlsMatch)  q['HLS (Auto)'] = hlsMatch[1];
+      if (highMatch) q['720p (MP4)'] = highMatch[1];
+      if (lowMatch)  q['480p (MP4)'] = lowMatch[1];
 
-      // 2. Очистка и исправление ссылок
+      // 2. Обработка и лечение ссылок
       for (var key in q) {
         var link = q[key].replace(/\\\//g, '/').trim();
-        if (link.indexOf('http') !== 0) {
-          if (link.indexOf('//') === 0) link = 'https:' + link;
-          else link = HOST + (link.startsWith('/') ? '' : '/') + link;
+
+        // --- ЛЕЧЕНИЕ ОШИБКИ 1016 (Broken DNS) ---
+        // Если сайт подсовывает мертвый сервер wes.porno365tube.win, 
+        // мы заменяем его на основной рабочий домен top.porno365tube.win
+        if (link.indexOf('wes.porno365tube.win') !== -1) {
+            console.log('[p365] Fix 1016 Error: replacing wes. with top.');
+            link = link.replace('wes.porno365tube.win', 'top.porno365tube.win');
         }
+
+        // --- ГАРАНТИЯ ПРОТОКОЛА ---
+        if (link.indexOf('http') !== 0) {
+          if (link.indexOf('//') === 0) {
+            link = 'https:' + link;
+          } else {
+            // Если ссылка относительная, приклеиваем HOST
+            link = HOST + (link.startsWith('/') ? '' : '/') + link;
+          }
+        }
+        
         q[key] = link;
       }
 
+      // 3. Финальная проверка результата
       if (Object.keys(q).length > 0) {
         success({ qualities: q });
       } else {
-        error('Видео не найдено (ошибка парсинга плеера)');
+        // Резервный поиск любого mp4 на странице, если основные паттерны не сработали
+        var anyMp4 = html.match(/https?:\/\/[^"'\s]+\.mp4[^"'\s]*/);
+        if (anyMp4) {
+          success({ qualities: { 'SD': anyMp4[0] } });
+        } else {
+          error('Видео не найдено. Возможно, зеркало сайта изменилось.');
+        }
       }
     }, error);
   }
