@@ -704,6 +704,7 @@
             'eptaporno.com':       'ept',
             'top.porno365tube.win': 'p365',
             'xv-ru.com':            'xv-ru',
+            'ukr.bongacams.com':    'bcms',
             'xds.com':              'xds',
           };
           parserName = domainMap[hostname] || stripped.split('/')[0];
@@ -769,6 +770,7 @@
                 'eptaporno.com':        'ept',
                 'top.porno365tube.win': 'p365',
                 'xv-ru.com':            'xv-ru',
+                'ukr.bongacams.com':    'bcms',
                 'xds.com':              'xds',
               };
               _pn = _dm[_hn] || _ps.split('/')[0];
