@@ -1,7 +1,7 @@
 // =============================================================
 // ept.js — Парсер EptaPorno для AdultJS (Lampa)
-// Version  : 1.0.0
-// Architecture: YouJizz/XDS Style (Smart Routing)
+// Version  : 1.1.0
+// Architecture: XDS Style (Smart Routing + Submenu)
 // =============================================================
 
 (function () {
@@ -10,6 +10,16 @@
   var NAME = 'ept';
   var HOST = 'https://eptaporno.com';
 
+  // ----------------------------------------------------------
+  // КАТЕГОРИИ (извлечены из JSON)
+  // ----------------------------------------------------------
+  var CATEGORIES = [
+    { title: '👠 Чулки', slug: 'chulki' },
+    { title: '🌲 На природе', slug: 'na-prirode' },
+    { title: '💦 Писающие', slug: 'pisayushchie' },
+    { title: '📼 Записи приватов', slug: 'zapisi-privatov' },
+    { title: '👾 Нестандартное', slug: 'izvrashcheniya' }
+  ];
 
   // ----------------------------------------------------------
   // СЕТЕВОЙ ЗАПРОС
@@ -62,25 +72,52 @@
   }
 
   // ----------------------------------------------------------
-  // РОУТИНГ (Smart Routing)
+  // МЕНЮ (XDS Style)
+  // ----------------------------------------------------------
+  function buildMenu() {
+    return [
+      {
+        title: '🔍 Поиск',
+        search_on: true,
+        playlist_url: NAME + '/search/'
+      },
+      {
+        title: '🔥 Новинки',
+        playlist_url: NAME + '/latest'
+      },
+      {
+        title: '📂 Категории',
+        playlist_url: 'submenu',
+        submenu: CATEGORIES.map(function (c) {
+          return {
+            title: c.title,
+            playlist_url: NAME + '/cat/' + c.slug
+          };
+        })
+      }
+    ];
+  }
+
+  // ----------------------------------------------------------
+  // РОУТИНГ
   // ----------------------------------------------------------
   function routeView(params, success, error) {
     var url = params.url || '';
     var page = params.page || 1;
     var fetchUrl = HOST + '/latest-updates/' + (page > 1 ? page + '/' : '');
 
-    // 1. Обработка поиска через фильтр Lampa (?q= или ?search=)
-    var searchMatch = url.match(/[?&](q|search)=([^&]*)/);
+    // 1. Поиск через фильтр (?search= или ?q=)
+    var searchMatch = url.match(/[?&](search|q)=([^&]*)/);
     if (searchMatch) {
         var query = decodeURIComponent(searchMatch[2]);
         fetchUrl = HOST + '/search/' + query + '/' + (page > 1 ? page + '/' : '');
     } 
-    // 2. Обработка категорий (URL вида ept/cat/chulki)
+    // 2. Категории
     else if (url.indexOf(NAME + '/cat/') === 0) {
         var cat = url.split('/cat/')[1].split('?')[0];
         fetchUrl = HOST + '/categories/' + cat + '/' + (page > 1 ? page + '/' : '');
     }
-    // 3. Обработка прямого пути поиска (URL вида ept/search/query)
+    // 3. Прямой поиск в URL
     else if (url.indexOf(NAME + '/search/') === 0) {
         var rawQ = url.split('/search/')[1].split('?')[0];
         if (rawQ) fetchUrl = HOST + '/search/' + rawQ + '/' + (page > 1 ? page + '/' : '');
@@ -92,12 +129,7 @@
             results: results,
             collection: true,
             total_pages: results.length > 0 ? page + 1 : page,
-            menu: [
-                { title: '🔍 Найти', search_on: true, playlist_url: NAME + '/search/' },
-                { title: 'Писающие', playlist_url: NAME + '/categories/pisayushchie' },
-                { title: 'Записи приватов', playlist_url: NAME + '/categories/zapisi-privatov' },
-                { title: 'Нестандартное', playlist_url: NAME + '/categories/izvrashcheniya' }
-            ]
+            menu: buildMenu()
         });
     }, error);
   }
@@ -121,7 +153,6 @@
     },
     qualities: function (videoUrl, success, error) {
         httpGet(videoUrl, function (html) {
-            // Поиск mp4 в теге video (согласно json архитектуре)
             var m = html.match(/<video[^>]*src="([^"]+)"/i) || html.match(/source\s+src="([^"]+)"/i);
             if (m && m[1]) {
                 var stream = m[1];
@@ -134,7 +165,6 @@
     }
   };
 
-  // Регистрация
   function register() {
     if (window.AdultPlugin && window.AdultPlugin.registerParser) {
         window.AdultPlugin.registerParser(NAME, EptParser);
