@@ -13,7 +13,15 @@
   var NAME = 'z777';
   var HOST = 'https://zoo-xvideos.com';
 
-  // Куки для обхода Age Gate (из arch.txt)
+  // ----------------------------------------------------------
+  // КАТЕГОРИИ
+  // ----------------------------------------------------------
+  var CATS = [
+    { title: '🇷🇺 Русское',        val: 'a1-russian'  },
+    { title: '👩 Зрелые (MILF)',   val: 'milf-porn'   },
+  ];
+
+ // Куки для обхода Age Gate (из arch.txt)
   var HEADERS = {
     'Cookie': 'disclaimer=</span>'
   };
@@ -161,6 +169,16 @@
       {
         title:        '🆕 Новинки',
         playlist_url: NAME + '/new'
+      },
+      {
+        title:        '📂 Категории',
+        playlist_url: 'submenu',
+        submenu:      CATS.map(function (c) {
+          return {
+            title:        c.title,
+            playlist_url: NAME + '/cat/' + c.val
+          };
+        })
       }
     ];
   }
@@ -174,7 +192,7 @@
     var url = HOST + '/';
 
     if (type === 'search' && query) {
-      url += '?q=' + encodeURIComponent(query);
+      url += encodeURIComponent(query);
     } else if (type === 'new') {
       // Новинки обычно без параметров или /new/
       url += '?sort=new'; // Примерная логика, если есть сортировка
