@@ -321,7 +321,7 @@
       ptopGet(videoPageUrl, function (html) {
         var sources = extractVideoUrls(html);
         if (Object.keys(sources).length > 0) {
-          success({ qualitys: sources });
+          success({ qualities: sources });
         } else {
           error('Video not found');
         }
