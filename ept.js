@@ -10,6 +10,7 @@
   var NAME = 'ept';
   var HOST = 'https://eptaporno.com';
 
+
   // ----------------------------------------------------------
   // СЕТЕВОЙ ЗАПРОС
   // ----------------------------------------------------------
@@ -93,9 +94,9 @@
             total_pages: results.length > 0 ? page + 1 : page,
             menu: [
                 { title: '🔍 Найти', search_on: true, playlist_url: NAME + '/search/' },
-                { title: '👠 Чулки', playlist_url: NAME + '/cat/chulki' },
-                { title: '🌳 На природе', playlist_url: NAME + '/cat/na-prirode' },
-                { title: '🍓 Любительское', playlist_url: NAME + '/cat/lyubitelskoe-porno' }
+                { title: 'Писающие', playlist_url: NAME + '/categories/pisayushchie' },
+                { title: 'Записи приватов', playlist_url: NAME + '/categories/zapisi-privatov' },
+                { title: 'Нестандартное', playlist_url: NAME + '/categories/izvrashcheniya' }
             ]
         });
     }, error);
