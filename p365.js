@@ -25,7 +25,7 @@
   'use strict';
 
   var NAME = 'p365';
-  var HOST = 'https://top.porno365tube.win';
+  var HOST = 'https://porno365tube.mobi';
 
   var CATEGORIES = [
     { title: 'HD порно',          slug: 'hd-porno'               },
