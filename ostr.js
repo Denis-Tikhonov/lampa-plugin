@@ -22,7 +22,7 @@
   var NAME       = 'ostr';
   var BASE_URL   = 'http://ostroeporno.com';
   // Worker из W137.js — замените на свой URL
-  var WORKER_URL = 'https://your-worker.workers.dev';
+  var WORKER_URL = 'https://zonaproxy.777b737.workers.dev';
 
   // ----------------------------------------------------------
   // КАТЕГОРИИ (полный список из JSON navigation.categories)
