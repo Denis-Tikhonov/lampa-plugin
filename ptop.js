@@ -1,37 +1,37 @@
 // =============================================================
 // ptop.js — PornTop Parser для AdultJS (Lampa)
 // =============================================================
-// Версия  : 1.2.0
+// Версия  : 1.3.0
 // Изменения:
-//   [1.2.0] Переписан под структуру p365 (эталон):
-//           - [FIX] Транспорт: window.AdultPlugin.networkRequest
-//           - [FIX] extractQualities: video_url на ptop содержит шаблон
-//                   {video_id}/{dir} — ПРОПУСКАЕМ его, ищем реальные URL:
-//                   1) <source src size> теги
-//                   2) og:video mp4
-//                   3) file: 'url' паттерн JW Player
-//                   4) прямые .mp4 ссылки в HTML
-//           - [FIX] qualities() → { qualities: {...} } строки URL
-//           - [FIX] parsePlaylist: DOMParser .item + data-original
-//           - [FIX] URL категорий: /category/{slug}/l/ (JSON)
-//           - [FIX] Пагинация: &page=N (JSON)
-//           - [FIX] Поиск: /?q={query} (JSON)
-//           - [FIX] routeView: NAME/cat/ как в p365
-//   [1.1.0] qualities опечатка + Worker fallback (устарело)
+//   [1.3.0] КРИТИЧЕСКИЙ FIX qualities():
+//           Скрин-анализ: .mp4: 41 — ссылки ЕСТЬ, но все содержат
+//           шаблон вида "porntop.com/video/{video_id}/{dir}/?r=1"
+//           → наш фильтр indexOf('{') отбрасывал ВСЕ ссылки.
+//
+//           Реальная структура страницы porntop:
+//           - Видео отдаётся через iframe embed от внешнего хостера
+//           - В HTML есть ссылки вида: https://cdn.domain/path/id.mp4
+//           - Или через JS объект с "sources": [{file:"url", label:"HD"}]
+//
+//           Новый порядок стратегий:
+//           S1. jwplayer() sources JSON — {"file":"url","label":"HD"}
+//           S2. <source src> теги без шаблонов
+//           S3. Любой внешний CDN mp4 (не porntop.com домен, нет {})
+//           S4. Любой mp4 на любом домене (нет {})
+//           S5. og:video mp4
+//           S6. iframe src — если видео в iframe (embed)
+//   [1.2.0] Переписан под структуру p365
+//   [1.1.0] Worker fallback (устарело)
 //   [1.0.0] Базовый парсер
 // =============================================================
 
 (function () {
   'use strict';
 
-  var VERSION = '1.2.0';
+  var VERSION = '1.3.0';
   var NAME    = 'ptop';
   var HOST    = 'https://porntop.com';
 
-  // ----------------------------------------------------------
-  // КАТЕГОРИИ
-  // JSON: url = HOST/category/{name}/l/
-  // ----------------------------------------------------------
   var CATEGORIES = [
     { title: '💎 HD Video',        slug: 'hd'          },
     { title: '👩 Брюнетки',        slug: 'brunette'    },
@@ -46,23 +46,18 @@
   ];
 
   // ----------------------------------------------------------
-  // ТРАНСПОРТ — идентично p365
-  // AdultPlugin.networkRequest передаёт Cookie: mature=1 через Worker
+  // ТРАНСПОРТ
   // ----------------------------------------------------------
   function httpGet(url, success, error) {
     if (window.AdultPlugin && typeof window.AdultPlugin.networkRequest === 'function') {
       window.AdultPlugin.networkRequest(url, success, error);
     } else {
-      fetch(url)
-        .then(function (r) { return r.text(); })
-        .then(success)
-        .catch(error);
+      fetch(url).then(function (r) { return r.text(); }).then(success).catch(error);
     }
   }
 
   // ----------------------------------------------------------
   // ОЧИСТКА URL
-  // JSON: backslashEscaped=true, rootRelative=true
   // ----------------------------------------------------------
   function cleanUrl(url) {
     if (!url) return '';
@@ -74,13 +69,13 @@
 
   // ----------------------------------------------------------
   // ПАРСИНГ КАТАЛОГА
-  // JSON: cardSelector=".item", thumb=data-original, title=.title, link=a[href]
+  // JSON: cardSelector=".item", thumb=data-original, title=.title
   // ----------------------------------------------------------
   function parsePlaylist(html) {
     var results = [];
     var doc     = new DOMParser().parseFromString(html, 'text/html');
     var items   = doc.querySelectorAll('.item');
-    console.log('[ptop] parsePlaylist → .item найдено:', items.length);
+    console.log('[ptop] parsePlaylist → .item:', items.length);
 
     for (var i = 0; i < items.length; i++) {
       var el     = items[i];
@@ -90,7 +85,6 @@
       var href = cleanUrl(linkEl.getAttribute('href') || '');
       if (!href) continue;
 
-      // JSON: thumbnail.attribute = data-original
       var imgEl = el.querySelector('img');
       var pic   = '';
       if (imgEl) {
@@ -101,7 +95,6 @@
         );
       }
 
-      // JSON: title selector = .item .title (strong)
       var titleEl = el.querySelector('.title, strong');
       var name    = (titleEl ? titleEl.textContent : (linkEl.getAttribute('title') || linkEl.textContent))
         .replace(/[\t\n\r]+/g, ' ').replace(/\s{2,}/g, ' ').trim() || 'Video';
@@ -110,16 +103,9 @@
       var time  = durEl ? durEl.textContent.trim() : '';
 
       results.push({
-        name:             name,
-        video:            href,
-        picture:          pic,
-        img:              pic,
-        poster:           pic,
-        background_image: pic,
-        time:             time,
-        quality:          'HD',
-        json:             true,
-        source:           NAME,
+        name: name, video: href,
+        picture: pic, img: pic, poster: pic, background_image: pic,
+        time: time, quality: 'HD', json: true, source: NAME,
       });
     }
 
@@ -130,89 +116,124 @@
   // ----------------------------------------------------------
   // ИЗВЛЕЧЕНИЕ КАЧЕСТВ
   //
-  // ВАЖНО: на porntop.com video_url в kt_player содержит ШАБЛОН:
-  //   video_url: 'https://porntop.com/video/{video_id}/{dir}/?r=1'
-  // Это заглушка — реального URL там нет.
+  // Анализ скринов:
+  //   {video_id}: 50 — шаблонные заглушки
+  //   video_url: 1   — есть, но содержит шаблон → S1 не работает
+  //   .mp4: 41       — 41 ссылка есть, но все либо шаблоны либо
+  //                    ссылки на porntop.com (прокси к embed)
+  //   og:video: 0    — нет
+  //   <source>: 0    — нет
   //
-  // Реальные источники ищем в таком порядке:
-  //   1) <source src size> или <source src label> — прямые mp4
-  //   2) og:video content="...mp4"
-  //   3) JW Player: file: 'https://...mp4'
-  //   4) Любой прямой https://...mp4 в HTML
+  // Вывод: porntop проксирует видео через iframe от внешних хостеров.
+  // Нужно найти embed iframe URL, затем запросить его.
   // ----------------------------------------------------------
-  function extractQualities(html) {
+  function extractQualities(html, pageUrl) {
     var q = {};
 
-    // Стратегия 1а: <source src="..." size="480">
-    var re1 = /<source[^>]+src="([^"]+)"[^>]+size="([^"]+)"/gi;
-    var re2 = /<source[^>]+size="([^"]+)"[^>]+src="([^"]+)"/gi;
-    var m;
-    while ((m = re1.exec(html)) !== null) {
-      if (m[2] === 'preview') continue;
-      if (m[1].indexOf('.mp4') === -1) continue;
-      q[m[2] + 'p'] = cleanUrl(m[1]);
-      console.log('[ptop] <source> size=' + m[2] + ':', m[1].substring(0, 80));
+    // ----------------------------------------------------------
+    // S1. jwplayer() / setup() — sources JSON
+    // Паттерн: [{file:"url",label:"HD"},{file:"url",label:"SD"}]
+    // ----------------------------------------------------------
+    var jwRe = /(?:sources|playlist)\s*:\s*(\[[\s\S]{1,2000}?\])/;
+    var jwM  = html.match(jwRe);
+    if (jwM) {
+      try {
+        // Нормализуем JSON: одинарные кавычки → двойные
+        var jsonStr = jwM[1]
+          .replace(/'/g, '"')
+          .replace(/(\w+)\s*:/g, '"$1":');
+        var sources = JSON.parse(jsonStr);
+        sources.forEach(function (s) {
+          var file  = s.file || s.src || s.url || '';
+          var label = s.label || s.quality || 'HD';
+          if (file && file.indexOf('{') === -1 && file.indexOf('.mp4') !== -1) {
+            q[label] = cleanUrl(file);
+            console.log('[ptop] S1 jwplayer source ' + label + ':', q[label].substring(0, 80));
+          }
+        });
+      } catch (e) { console.warn('[ptop] S1 json parse error:', e.message); }
     }
+
+    // ----------------------------------------------------------
+    // S2. <source src> без шаблонов
+    // ----------------------------------------------------------
     if (!Object.keys(q).length) {
-      while ((m = re2.exec(html)) !== null) {
-        if (m[1] === 'preview') continue;
-        if (m[2].indexOf('.mp4') === -1) continue;
-        q[m[1] + 'p'] = cleanUrl(m[2]);
-        console.log('[ptop] <source> rev size=' + m[1] + ':', m[2].substring(0, 80));
+      var re2 = /<source[^>]+src="([^"]+)"/gi;
+      var m2;
+      while ((m2 = re2.exec(html)) !== null) {
+        var s2 = m2[1];
+        if (s2.indexOf('{') !== -1) continue;
+        if (s2.indexOf('.mp4') === -1 && s2.indexOf('.m3u8') === -1) continue;
+        var l2 = s2.match(/_(\d+)p?\.mp4/) ? s2.match(/_(\d+)p?\.mp4/)[1] + 'p' : 'HD';
+        q[l2] = cleanUrl(s2);
+        console.log('[ptop] S2 <source>:', s2.substring(0, 80));
       }
     }
 
-    // Стратегия 1б: <source src="..." label="480p">
+    // ----------------------------------------------------------
+    // S3. Внешний CDN mp4 (не porntop.com домен, без шаблонов)
+    // Порнтоп использует сторонние CDN для реального видео
+    // ----------------------------------------------------------
     if (!Object.keys(q).length) {
-      var rl1 = /<source[^>]+src="([^"]+)"[^>]+label="([^"]+)"/gi;
-      var rl2 = /<source[^>]+label="([^"]+)"[^>]+src="([^"]+)"/gi;
-      while ((m = rl1.exec(html)) !== null) {
-        if (m[1].indexOf('.mp4') !== -1) q[m[2]] = cleanUrl(m[1]);
-      }
-      if (!Object.keys(q).length) {
-        while ((m = rl2.exec(html)) !== null) {
-          if (m[2].indexOf('.mp4') !== -1) q[m[1]] = cleanUrl(m[2]);
-        }
+      var allMp4 = html.match(/https?:\/\/[^"'\s<>\\]+\.mp4[^"'\s<>\\]*/gi);
+      if (allMp4) {
+        allMp4.forEach(function (u) {
+          if (u.indexOf('{') !== -1) return;                    // шаблон
+          if (u.indexOf('porntop.com') !== -1) return;          // прокси самого сайта
+          if (u.indexOf('pttn.m3pd.com') !== -1) return;        // CDN превью/постеров
+          var qm = u.match(/_(\d+)p?\.mp4/);
+          var lbl = qm ? qm[1] + 'p' : 'HD';
+          if (!q[lbl]) {
+            q[lbl] = cleanUrl(u);
+            console.log('[ptop] S3 external CDN mp4 ' + lbl + ':', u.substring(0, 80));
+          }
+        });
       }
     }
 
-    // Стратегия 2: og:video
+    // ----------------------------------------------------------
+    // S4. Любой mp4 без шаблонов (включая porntop CDN)
+    // ----------------------------------------------------------
+    if (!Object.keys(q).length) {
+      var allMp4b = html.match(/https?:\/\/[^"'\s<>\\]+\.mp4[^"'\s<>\\]*/gi);
+      if (allMp4b) {
+        allMp4b.forEach(function (u) {
+          if (u.indexOf('{') !== -1) return;
+          var qm = u.match(/_(\d+)p?\.mp4/);
+          var lbl = qm ? qm[1] + 'p' : 'HD';
+          if (!q[lbl]) {
+            q[lbl] = cleanUrl(u);
+            console.log('[ptop] S4 any mp4 ' + lbl + ':', u.substring(0, 80));
+          }
+        });
+      }
+    }
+
+    // ----------------------------------------------------------
+    // S5. og:video
+    // ----------------------------------------------------------
     if (!Object.keys(q).length) {
       var og = html.match(/property="og:video"[^>]+content="([^"]+\.mp4[^"]*)"/i)
             || html.match(/content="([^"]+\.mp4[^"]*)"[^>]+property="og:video"/i);
       if (og) {
         var ogUrl = cleanUrl(og[1]);
-        var ogQ   = ogUrl.match(/_(\d+)\.mp4/);
-        var label = ogQ ? ogQ[1] + 'p' : 'HD';
-        q[label]  = ogUrl;
-        console.log('[ptop] og:video ' + label + ':', ogUrl.substring(0, 80));
-      }
-    }
-
-    // Стратегия 3: JW Player — file: 'url'
-    if (!Object.keys(q).length) {
-      var jw = html.match(/file\s*:\s*['"]([^'"]+\.mp4[^'"]*)['"]/i);
-      if (jw) {
-        q['HD'] = cleanUrl(jw[1]);
-        console.log('[ptop] JW file:', jw[1].substring(0, 80));
-      }
-    }
-
-    // Стратегия 4: любой прямой https://...mp4 (НЕ шаблон с {})
-    if (!Object.keys(q).length) {
-      var allMp4 = html.match(/https?:\/\/[^'"<>\s]+\.mp4[^'"<>\s]*/gi);
-      if (allMp4) {
-        for (var i = 0; i < allMp4.length; i++) {
-          var u = allMp4[i];
-          // Пропускаем шаблоны с фигурными скобками
-          if (u.indexOf('{') !== -1) continue;
-          var qm = u.match(/_(\d+)\.mp4/);
-          var ql = qm ? qm[1] + 'p' : ('HD' + i);
-          if (!q[ql]) {
-            q[ql] = cleanUrl(u);
-            console.log('[ptop] mp4 fallback ' + ql + ':', u.substring(0, 80));
-          }
+        if (ogUrl.indexOf('{') === -1) {
+          var ogQ   = ogUrl.match(/_(\d+)\.mp4/);
+          q[ogQ ? ogQ[1] + 'p' : 'HD'] = ogUrl;
+          console.log('[ptop] S5 og:video:', ogUrl.substring(0, 80));
         }
+      }
+    }
+
+    // ----------------------------------------------------------
+    // S6. iframe embed — если видео во внешнем плеере
+    // Возвращаем URL iframe как "embed" для дальнейшего запроса
+    // ----------------------------------------------------------
+    if (!Object.keys(q).length) {
+      var iframeM = html.match(/<iframe[^>]+src="(https?:\/\/[^"]+)"/i);
+      if (iframeM && iframeM[1].indexOf('porntop.com') === -1) {
+        q['embed'] = iframeM[1];
+        console.log('[ptop] S6 iframe embed:', iframeM[1].substring(0, 80));
       }
     }
 
@@ -221,17 +242,14 @@
 
   // ----------------------------------------------------------
   // URL BUILDER
-  // JSON: search=/?q=, category=/category/{slug}/l/, page=&page=N
   // ----------------------------------------------------------
   function buildUrl(type, value, page) {
     var url = HOST;
     page    = parseInt(page, 10) || 1;
-
     if (type === 'search') {
       url += '/?q=' + encodeURIComponent(value);
       if (page > 1) url += '&page=' + page;
     } else if (type === 'cat') {
-      // JSON: /category/{slug}/l/
       url += '/category/' + value + '/l/';
       if (page > 1) url += '?page=' + page;
     } else {
@@ -245,9 +263,8 @@
       { title: '🔍 Поиск',     search_on: true, playlist_url: NAME + '/search/' },
       { title: '🔥 Популярное', playlist_url: NAME + '/popular' },
       {
-        title:        '📂 Категории',
-        playlist_url: 'submenu',
-        submenu:      CATEGORIES.map(function (c) {
+        title: '📂 Категории', playlist_url: 'submenu',
+        submenu: CATEGORIES.map(function (c) {
           return { title: c.title, playlist_url: NAME + '/cat/' + c.slug };
         }),
       },
@@ -255,17 +272,15 @@
   }
 
   // ----------------------------------------------------------
-  // РОУТИНГ — идентично p365
+  // РОУТИНГ
   // ----------------------------------------------------------
   function routeView(url, page, success, error) {
     var fetchUrl;
-    var searchMatch = url.match(/[?&]search=([^&]*)/);
-
-    if (searchMatch) {
-      fetchUrl = buildUrl('search', decodeURIComponent(searchMatch[1]), page);
+    var sm = url.match(/[?&]search=([^&]*)/);
+    if (sm) {
+      fetchUrl = buildUrl('search', decodeURIComponent(sm[1]), page);
     } else if (url.indexOf(NAME + '/cat/') === 0) {
-      var cat = url.replace(NAME + '/cat/', '').split('?')[0];
-      fetchUrl = buildUrl('cat', cat, page);
+      fetchUrl = buildUrl('cat', url.replace(NAME + '/cat/', '').split('?')[0], page);
     } else if (url.indexOf(NAME + '/search/') === 0) {
       var q = decodeURIComponent(url.replace(NAME + '/search/', '').split('?')[0]).trim();
       fetchUrl = buildUrl('search', q, page);
@@ -278,12 +293,7 @@
       console.log('[ptop] html длина:', html.length);
       var results = parsePlaylist(html);
       if (!results.length) { error('Контент не найден'); return; }
-      success({
-        results:     results,
-        collection:  true,
-        total_pages: page + 1,
-        menu:        buildMenu(),
-      });
+      success({ results: results, collection: true, total_pages: page + 1, menu: buildMenu() });
     }, error);
   }
 
@@ -291,47 +301,60 @@
   // ПАРСЕР API
   // ----------------------------------------------------------
   var PtopParser = {
-
-    main: function (params, success, error) {
-      routeView(NAME + '/popular', 1, success, error);
-    },
-
-    view: function (params, success, error) {
-      routeView(params.url || NAME, params.page || 1, success, error);
-    },
-
-    search: function (params, success, error) {
-      var query = (params.query || '').trim();
+    main: function (p, s, e) { routeView(NAME + '/popular', 1, s, e); },
+    view: function (p, s, e) { routeView(p.url || NAME, p.page || 1, s, e); },
+    search: function (p, s, e) {
+      var query = (p.query || '').trim();
       httpGet(buildUrl('search', query, 1), function (html) {
-        var results = parsePlaylist(html);
-        success({
-          title:       'PornTop: ' + query,
-          results:     results,
-          collection:  true,
-          total_pages: results.length >= 20 ? 2 : 1,
-        });
-      }, error);
+        s({ title: 'PornTop: ' + query, results: parsePlaylist(html), collection: true, total_pages: 2 });
+      }, e);
     },
 
     qualities: function (videoPageUrl, success, error) {
       console.log('[ptop] qualities() →', videoPageUrl);
+
       httpGet(videoPageUrl, function (html) {
         console.log('[ptop] qualities() html длина:', html.length);
         if (!html || html.length < 500) { error('html < 500'); return; }
 
-        var found = extractQualities(html);
+        // Диагностика перед извлечением
+        console.log('[ptop] {video_id}:', (html.match(/\{video_id\}/gi) || []).length);
+        console.log('[ptop] video_url:',  (html.match(/video_url/gi)    || []).length);
+        console.log('[ptop] .mp4:',       (html.match(/\.mp4/gi)        || []).length);
+        console.log('[ptop] <source>:',   (html.match(/<source/gi)      || []).length);
+        console.log('[ptop] og:video:',   (html.match(/og:video/gi)     || []).length);
+        console.log('[ptop] jwplayer:',   (html.match(/jwplayer/gi)     || []).length);
+        console.log('[ptop] sources:',    (html.match(/sources\s*:/gi)  || []).length);
+        console.log('[ptop] iframe:',     (html.match(/<iframe/gi)      || []).length);
+
+        var found = extractQualities(html, videoPageUrl);
         var keys  = Object.keys(found);
         console.log('[ptop] qualities() найдено:', keys.length, JSON.stringify(keys));
 
         if (keys.length > 0) {
+          // Если нашли embed iframe — пробуем загрузить и извлечь из него
+          if (keys.length === 1 && found['embed']) {
+            var embedUrl = found['embed'];
+            console.log('[ptop] пробуем embed iframe →', embedUrl);
+            httpGet(embedUrl, function (embedHtml) {
+              console.log('[ptop] embed html длина:', embedHtml.length);
+              var embedQ = extractQualities(embedHtml, embedUrl);
+              var embedKeys = Object.keys(embedQ);
+              if (embedKeys.length > 0 && !(embedKeys.length === 1 && embedQ['embed'])) {
+                console.log('[ptop] embed qualities найдено:', JSON.stringify(embedKeys));
+                success({ qualities: embedQ });
+              } else {
+                // Возвращаем embed URL как прямую ссылку — пусть плеер попробует
+                success({ qualities: { 'embed': embedUrl } });
+              }
+            }, function () {
+              success({ qualities: { 'embed': embedUrl } });
+            });
+            return;
+          }
+
           success({ qualities: found });
         } else {
-          // Диагностика для следующего дебага
-          console.warn('[ptop] <source>:',   (html.match(/<source/gi)   || []).length);
-          console.warn('[ptop] og:video:',   (html.match(/og:video/gi)  || []).length);
-          console.warn('[ptop] .mp4:',       (html.match(/\.mp4/gi)     || []).length);
-          console.warn('[ptop] video_url:',  (html.match(/video_url/gi) || []).length);
-          console.warn('[ptop] {video_id}:', (html.match(/video_id/gi)  || []).length);
           error('Видео не найдено');
         }
       }, error);
@@ -339,7 +362,7 @@
   };
 
   // ----------------------------------------------------------
-  // РЕГИСТРАЦИЯ — идентично p365
+  // РЕГИСТРАЦИЯ
   // ----------------------------------------------------------
   function tryRegister() {
     if (window.AdultPlugin && typeof window.AdultPlugin.registerParser === 'function') {
@@ -349,11 +372,8 @@
     }
     return false;
   }
-
   if (!tryRegister()) {
-    var poll = setInterval(function () {
-      if (tryRegister()) clearInterval(poll);
-    }, 200);
+    var poll = setInterval(function () { if (tryRegister()) clearInterval(poll); }, 200);
     setTimeout(function () { clearInterval(poll); }, 5000);
   }
 
