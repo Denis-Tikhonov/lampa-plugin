@@ -1,54 +1,61 @@
-/* Lampa Parser: HDTube v1.3.1 */
+/* Lampa Parser: TrahKino v1.1.0 */
 (function () {
     'use strict';
 
-    function HDTube(object) {
+    function TrahKino(object) {
         var network = new Lampa.RegExp();
+        var scroll = new Lampa.Scroll({mask: true, over: true});
+        var items = [];
+        var html = $('<div></div>');
         
+        // Очистка URL от префикса проксирования Lampa, если он есть
         function cleanUrl(url) {
             if (!url) return '';
             return url.replace(/^.*?\/function\/0\//, '');
         }
 
         this.search = function (query) {
-            // Формируем запрос к поиску HDTube
-            var searchUrl = 'https://hdtube.porn/search/' + encodeURIComponent(query) + '/';
-            
-            network.silent(searchUrl, function (str) {
-                var container = $('<div>' + str + '</div>');
-                var videos = container.find('.video-item');
-                
-                var results = [];
-                videos.each(function () {
-                    var link = $(this).find('a').attr('href');
-                    var title = $(this).find('.title').text();
-                    if (link) results.push({ title: title, url: link });
+            var url = 'https://trahkino.me/?do=search&subaction=search&story=' + encodeURIComponent(query);
+            network.silent(url, function (str) {
+                var data = str.replace(/\s/g, ' ');
+                var items_html = data.match(/<div class="th-item">.*?<\/div> <\/div>/g) || [];
+                items = [];
+
+                items_html.forEach(function (item) {
+                    var title = item.match(/<div class="th-title">(.*?)<\/div>/);
+                    var link = item.match(/href="(.*?)"/);
+                    var img = item.match(/src="(.*?)"/);
+
+                    if (title && link) {
+                        items.push({
+                            title: title[1],
+                            url: link[1],
+                            img: img ? 'https://trahkino.me' + img[1] : ''
+                        });
+                    }
                 });
 
-                // Отображение и выбор видео (упрощено)
-                if (results.length > 0) {
-                    resolveVideo(results[0].url);
+                if (items.length) {
+                    html.append(scroll.render());
+                    items.forEach(function (item) {
+                        var card = Lampa.Template.get('button', {title: item.title});
+                        card.on('hover:enter', function () {
+                            extractVideo(item.url);
+                        });
+                        scroll.append(card);
+                    });
                 }
             });
         };
 
-        function resolveVideo(url) {
+        function extractVideo(url) {
             network.silent(cleanUrl(url), function (str) {
-                // Ищем скрипт плеера или прямые ссылки get_file
-                var videoData = str.match(/video_url:\s*'(.*?)'/);
-                if (!videoData) videoData = str.match(/file:\s*"(.*?)"/);
-
-                if (videoData) {
-                    var streamUrl = videoData[1];
+                var video = str.match(/file:"(.*?)"/);
+                if (video) {
+                    var finalUrl = video[1];
+                    // Направляем через ваш W138.js
+                    var proxyUrl = 'https://W138.js.workers.dev/?url=' + encodeURIComponent(finalUrl);
                     
-                    // Если ссылка относительная, добавляем домен cdn1 или основной
-                    if (streamUrl.indexOf('http') !== 0) {
-                        streamUrl = 'https://cdn1.hdtube.porn' + streamUrl;
-                    }
-
-                    // Проксируем через Cloudflare Worker
-                    var proxyUrl = 'https://W138.js.workers.dev/?url=' + encodeURIComponent(streamUrl);
-
                     Lampa.Player.play({
                         url: proxyUrl,
                         title: object.movie.title
@@ -58,5 +65,5 @@
         }
     }
 
-    Lampa.Plugins.add('hdtube', HDTube);
+    Lampa.Plugins.add('trahkino', TrahKino);
 })();
