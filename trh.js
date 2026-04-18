@@ -1,160 +1,196 @@
 // =============================================================
 // trh.js — Парсер TrahKino для AdultJS (Lampa)
-// Version  : 1.1.0
-// Based on : trh_100 + json-анализ trahkino.me (v4.0.0, 2026-04-17)
+// =============================================================
+// Версия  : 1.3.0
+// Изменения:
+//   [1.3.0] КРИТИЧЕСКИЙ FIX cleanUrl() — та же проблема что hdtub:
+//           Лог: Player url: function/0/https://trahkino.me/get_file/...
+//           → video_url в JS содержит ОТНОСИТЕЛЬНЫЙ путь "function/0/https://..."
+//             cleanUrl v1.2.0 не срезал его (ждал полный абсолютный URL).
 //
-// [1.1.0] ИСПРАВЛЕНО три критических бага:
+//           Исправлено: cleanUrl проверяет ДВА случая:
+//           A) https://host/function/N/https://...  → вытащить вложенный https://
+//           B) function/N/https://...               → вытащить напрямую
 //
-//   БАГ 1 — URL категорий (главная причина 404):
-//     было:  HOST + '/categories/' + cat + '/' + page  ← не существует
-//     стало: HOST + '/?c=' + cat + '&page=' + N
-//     JSON:  "category.pattern": "https://trahkino.me/?c={slug}"
+//           Также:
+//           - [FIX] JSON v4.2.0: cards "Not found" на главной → используем
+//                   /latest-updates/ как стартовую страницу (подтверждено)
+//           - [FIX] qualities: label уточняется по суффиксу имени файла
+//                   (JSON показал: 240p без суффикса, 360p → _360p.mp4)
+//           - [ADD] W137 домен trahkino.me добавлен в WHITELIST (напоминание)
 //
-//   БАГ 2 — Пагинация главной страницы:
-//     было:  HOST + '/latest-updates/' + page + '/'    ← нет такого пути
-//     стало: HOST + '/latest-updates/?page=' + N
-//     JSON:  "pagination.pattern": "&page={N}"
-//
-//   БАГ 3 — Поиск видео (qualities):
-//     было:  regex по /get_file/...mp4 внутри JSON-строк
-//            + split('?')[0] обрезал нужные части URL
-//     стало: ищем video_url и video_alt_url из kt_player конфига
-//            JSON: "video_url\s*[:=]\s*['"]([^'"]+)['"]"
-//            URL вида: trahkino.me/function/0/https://trahkino.me/get_file/36/{hash}/...mp4/
-//            Берём AS-IS — это прокси самого сайта, 404 был из-за неверного URL без /function/0/
-//
-// URL-схема (из JSON):
-//   Главная   : https://trahkino.me/latest-updates/
-//   Страница N: https://trahkino.me/latest-updates/?page={N}
-//   Поиск     : https://trahkino.me/?q={query}
-//   Поиск N   : https://trahkino.me/?q={query}&page={N}
-//   Категория : https://trahkino.me/?c={slug}
-//   Категория N: https://trahkino.me/?c={slug}&page={N}
-//   Видео     : https://trahkino.me/video/{id}/
-//
-// Структура видео URL (kt_player):
-//   video_url     = https://trahkino.me/function/0/https://trahkino.me/get_file/36/{hash}/{folder}/{id}/{id}.mp4/
-//   video_alt_url = https://trahkino.me/function/0/https://trahkino.me/get_file/36/{hash}/{folder}/{id}/{id}_360p.mp4/
-//
-// Worker ALLOWED_TARGETS:
-//   trahkino.me   — сайт + get_file CDN (всё через /function/0/ прокси)
+//   [1.2.0] Полная переработка на основе JSON trahkino.me
+//   [1.0.0] Базовый парсер
 // =============================================================
 
 (function () {
   'use strict';
 
-  var NAME = 'trh';
-  var HOST = 'https://trahkino.me';
+  var VERSION = '1.3.0';
+  var NAME    = 'trh';
+  var HOST    = 'https://trahkino.me';
 
-  // Полный список категорий из JSON (40 категорий)
   var CATS = [
-    { name: 'Любительское',      slug: 'lyubitelskiy-seks'  },
-    { name: 'Минет',             slug: 'minet'              },
-    { name: 'Брюнетки',          slug: 'bryunetki'          },
-    { name: 'Большие члены',     slug: 'bolshie-hui'        },
-    { name: 'Анал',              slug: 'anal'               },
-    { name: 'Милфы',             slug: 'milfy'              },
-    { name: 'Домашнее',          slug: 'domashka'           },
-    { name: 'Соло',              slug: 'solo'               },
-    { name: 'Большие сиськи',    slug: 'bolshie-siski'      },
-    { name: 'От первого лица',   slug: 'ot-pervogo-lica'    },
-    { name: 'Большие попки',     slug: 'bolshie-popki'      },
-    { name: 'Кончают внутрь',    slug: 'konchayut-vnutr'    },
-    { name: 'Мулатки',           slug: 'mulatki'            },
-    { name: 'Красотки',          slug: 'krasotki'           },
-    { name: 'Русское',           slug: 'russkie'            },
-    { name: 'Наездница',         slug: 'naezdnica'          },
-    { name: 'Толстушки',         slug: 'tolstye'            },
-    { name: 'Натуральные сиськи',slug: 'naturalnye-siski'   },
-    { name: 'Раком',             slug: 'rakom'              },
-    { name: 'Ролевые игры',      slug: 'rolevye-igry'       },
-    { name: 'Фетиш',             slug: 'fetish'             },
-    { name: 'Дрочка члена',      slug: 'drochka-chlena'     },
-    { name: 'Татуированные',     slug: 'tatu'               },
-    { name: 'Групповуха',        slug: 'gruppovuha'         },
-    { name: 'Бритые киски',      slug: 'britye-kiski'       },
-    { name: 'Мастурбация',       slug: 'masturbaciya'       },
-    { name: 'Массаж',            slug: 'eroticheskiy-massaj'},
-    { name: 'Сперма',            slug: 'sperma'             },
-    { name: 'Куни',              slug: 'kuni'               },
-    { name: 'Блондинки',         slug: 'blondinki'          },
-    { name: 'Женский оргазм',    slug: 'jenskiy-orgazm'     },
-    { name: 'Развратное',        slug: 'razvrat'            },
-    { name: 'Латинки',           slug: 'latinki'            },
-    { name: 'Француженки',       slug: 'francujenki'        },
-    { name: 'МЖМ',               slug: 'mjm'                },
-    { name: 'В очках',           slug: 'v-ochkah'           },
-    { name: 'Реальное',          slug: 'realnyy-seks'       },
-    { name: 'Бондаж',            slug: 'bondaj'             },
-    { name: 'В ванной',          slug: 'v-vannoy'           },
-    { name: 'Подборки',          slug: 'podborki'           },
+    { name: 'Любительское',       slug: 'lyubitelskiy-seks'   },
+    { name: 'Минет',              slug: 'minet'               },
+    { name: 'Брюнетки',           slug: 'bryunetki'           },
+    { name: 'Большие члены',      slug: 'bolshie-hui'         },
+    { name: 'Анал',               slug: 'anal'                },
+    { name: 'Милфы',              slug: 'milfy'               },
+    { name: 'Домашнее',           slug: 'domashka'            },
+    { name: 'Соло',               slug: 'solo'                },
+    { name: 'Большие сиськи',     slug: 'bolshie-siski'       },
+    { name: 'От первого лица',    slug: 'ot-pervogo-lica'     },
+    { name: 'Большие попки',      slug: 'bolshie-popki'       },
+    { name: 'Кончают внутрь',     slug: 'konchayut-vnutr'     },
+    { name: 'Мулатки',            slug: 'mulatki'             },
+    { name: 'Красотки',           slug: 'krasotki'            },
+    { name: 'Русское',            slug: 'russkie'             },
+    { name: 'Наездница',          slug: 'naezdnica'           },
+    { name: 'Толстушки',          slug: 'tolstye'             },
+    { name: 'Натуральные сиськи', slug: 'naturalnye-siski'    },
+    { name: 'Раком',              slug: 'rakom'               },
+    { name: 'Ролевые игры',       slug: 'rolevye-igry'        },
+    { name: 'Фетиш',              slug: 'fetish'              },
+    { name: 'Дрочка члена',       slug: 'drochka-chlena'      },
+    { name: 'Татуированные',      slug: 'tatu'                },
+    { name: 'Групповуха',         slug: 'gruppovuha'          },
+    { name: 'Бритые киски',       slug: 'britye-kiski'        },
+    { name: 'Мастурбация',        slug: 'masturbaciya'        },
+    { name: 'Массаж',             slug: 'eroticheskiy-massaj' },
+    { name: 'Сперма',             slug: 'sperma'              },
+    { name: 'Куни',               slug: 'kuni'                },
+    { name: 'Блондинки',          slug: 'blondinki'           },
+    { name: 'Женский оргазм',     slug: 'jenskiy-orgazm'      },
+    { name: 'Развратное',         slug: 'razvrat'             },
+    { name: 'Латинки',            slug: 'latinki'             },
+    { name: 'Француженки',        slug: 'francujenki'         },
+    { name: 'МЖМ',                slug: 'mjm'                 },
+    { name: 'В очках',            slug: 'v-ochkah'            },
+    { name: 'Реальное',           slug: 'realnyy-seks'        },
+    { name: 'Бондаж',             slug: 'bondaj'              },
+    { name: 'В ванной',           slug: 'v-vannoy'            },
+    { name: 'Подборки',           slug: 'podborki'            },
   ];
 
   // ----------------------------------------------------------
-  // Сетевой запрос
+  // ТРАНСПОРТ
   // ----------------------------------------------------------
   function httpGet(url, success, error) {
     if (window.AdultPlugin && typeof window.AdultPlugin.networkRequest === 'function') {
       window.AdultPlugin.networkRequest(url, success, error);
     } else {
-      fetch(url)
-        .then(function (r) { return r.text(); })
-        .then(success)
-        .catch(error);
+      fetch(url).then(function (r) { return r.text(); }).then(success).catch(error);
     }
   }
 
   // ----------------------------------------------------------
-  // Парсинг карточек
-  // Структура из JSON: cardSelector=".item", thumb=data-original
+  // ОЧИСТКА URL
+  //
+  // [1.3.0] FIX: function/N/ встречается в двух формах:
+  //
+  //   Форма A (абсолютная):
+  //     "https://trahkino.me/function/0/https://trahkino.me/get_file/..."
+  //
+  //   Форма B (относительная — прямо из video_url в HTML):
+  //     "function/0/https://trahkino.me/get_file/..."
+  //
+  //   Оба варианта → вытаскиваем вложенный https://
+  // ----------------------------------------------------------
+  function cleanUrl(raw) {
+    if (!raw) return '';
+    var u = raw.replace(/\\/g, '').trim();
+
+    // Форма A: https://host/function/N/https://...
+    var absMatch = u.match(/^https?:\/\/[^/]+\/function\/\d+\/(https?:\/\/.+)$/);
+    if (absMatch) {
+      u = absMatch[1];
+      console.log('[TRH] cleanUrl A (abs):', u.substring(0, 100));
+      return u;
+    }
+
+    // Форма B: function/N/https://... (относительный)
+    var relMatch = u.match(/^\/??function\/\d+\/(https?:\/\/.+)$/);
+    if (relMatch) {
+      u = relMatch[1];
+      console.log('[TRH] cleanUrl B (rel):', u.substring(0, 100));
+      return u;
+    }
+
+    // Стандартная нормализация
+    if (u.indexOf('//') === 0)                      u = 'https:' + u;
+    if (u.charAt(0) === '/' && u.charAt(1) !== '/') u = HOST + u;
+    return u;
+  }
+
+  // ----------------------------------------------------------
+  // ПОСТРОЕНИЕ URL
+  // JSON: search=/?q=, category=/?c=, pagination=&page=N
+  // главная: /latest-updates/
+  // ----------------------------------------------------------
+  function buildUrl(cat, page, query) {
+    page = parseInt(page, 10) || 1;
+
+    if (query) {
+      var u = HOST + '/?q=' + encodeURIComponent(query);
+      if (page > 1) u += '&page=' + page;
+      return u;
+    }
+
+    if (cat) {
+      var u = HOST + '/?c=' + encodeURIComponent(cat);
+      if (page > 1) u += '&page=' + page;
+      return u;
+    }
+
+    // Главная: /latest-updates/
+    if (page > 1) return HOST + '/latest-updates/?page=' + page;
+    return HOST + '/latest-updates/';
+  }
+
+  // ----------------------------------------------------------
+  // ПАРСИНГ КАРТОЧЕК
+  // JSON: cardSelector=".item", thumbnail=data-original
   // ----------------------------------------------------------
   function parseCards(html) {
     if (!html) return [];
-
     var doc   = new DOMParser().parseFromString(html, 'text/html');
     var items = doc.querySelectorAll('.item');
-
     console.log('[TRH] parseCards → .item найдено:', items.length);
-
     var results = [];
 
     for (var i = 0; i < items.length; i++) {
       var el = items[i];
-
-      // Ссылка на видео: /video/{id}/
-      var a = el.querySelector('a[href*="/video/"]');
+      var a  = el.querySelector('a[href*="/video/"]');
       if (!a) continue;
 
       var href = a.getAttribute('href') || '';
       if (!href) continue;
       if (href.indexOf('http') !== 0) href = HOST + href;
 
-      // Постер: data-original (из JSON: thumbnail.attribute = "data-original")
       var img = el.querySelector('img');
-      var pic = img ? (img.getAttribute('data-original') || img.getAttribute('src') || '') : '';
-      if (pic && pic.indexOf('//') === 0) pic = 'https:' + pic;
-      if (pic && pic.indexOf('http') !== 0 && pic.indexOf('/') === 0) pic = HOST + pic;
+      var pic = '';
+      if (img) {
+        pic = img.getAttribute('data-original') ||
+              img.getAttribute('data-src')      ||
+              img.getAttribute('src') || '';
+        if (pic && pic.indexOf('//') === 0)  pic = 'https:' + pic;
+        if (pic && pic.indexOf('/') === 0)   pic = HOST + pic;
+      }
 
-      // Название: .item .title → strong → a[title]
-      var titleEl = el.querySelector('.title, strong');
-      var name    = (titleEl ? (titleEl.textContent || '').trim() : '') ||
-                    (a.getAttribute('title') || '').trim();
-      name = name.replace(/\s+/g, ' ').trim();
+      var titleEl = el.querySelector('.title') || el.querySelector('strong');
+      var name    = (titleEl ? titleEl.textContent : (a.getAttribute('title') || ''))
+                    .replace(/\s+/g, ' ').trim();
       if (!name || name.length < 3) continue;
 
-      // Длительность: .item .duration
       var durEl = el.querySelector('.duration');
       var time  = durEl ? durEl.textContent.trim() : '';
 
       results.push({
-        name:    name,
-        video:   href,   // страница видео → qualities() извлечёт kt_player URL
-        picture: pic,
-        img:     pic,
-        poster:  pic,
-        time:    time,
-        json:    true,
-        source:  NAME,
+        name: name, video: href,
+        picture: pic, img: pic, poster: pic, background_image: pic,
+        preview: pic, time: time, quality: 'HD',
+        json: true, source: NAME,
       });
     }
 
@@ -163,46 +199,84 @@
   }
 
   // ----------------------------------------------------------
-  // [1.1.0] Построение URL — ИСПРАВЛЕНО
+  // ИЗВЛЕЧЕНИЕ КАЧЕСТВ
   //
-  // JSON urlScheme:
-  //   search:   /?q={query}
-  //   category: /?c={slug}
-  //   pagination: &page={N}    ← параметр, не путь
+  // JSON jsConfigs: kt_player
+  //   video_url     → 240p (имя файла без суффикса: 418492.mp4)
+  //   video_alt_url → 360p (суффикс _360p: 418492_360p.mp4)
   //
-  // Главная: /latest-updates/ (не просто /)
+  // URL вида: function/0/https://trahkino.me/get_file/...
+  // [1.3.0] cleanUrl() теперь правильно срезает function/0/
   // ----------------------------------------------------------
-  function buildUrl(cat, page, query) {
-    page = parseInt(page, 10) || 1;
+  function extractQualities(html) {
+    var q = {};
 
-    if (query) {
-      // Поиск: https://trahkino.me/?q={query}&page={N}
-      var url = HOST + '/?q=' + encodeURIComponent(query);
-      if (page > 1) url += '&page=' + page;
-      return url;
+    var fields = [
+      { re: /video_alt_url2\s*[:=]\s*['"]([^'"]+)['"]/,  defaultLabel: '720p' },
+      { re: /video_alt_url\s*[:=]\s*['"]([^'"]+)['"]/,   defaultLabel: '360p' },
+      { re: /video_url\s*[:=]\s*['"]([^'"]+)['"]/,       defaultLabel: '240p' },
+    ];
+
+    fields.forEach(function (f) {
+      var m = html.match(f.re);
+      if (!m || !m[1]) return;
+
+      var url   = cleanUrl(m[1]);
+      if (!url || url.indexOf('http') !== 0) return;
+
+      // Уточняем label по суффиксу имени файла
+      var label = f.defaultLabel;
+      if      (url.indexOf('_1080p') !== -1) label = '1080p';
+      else if (url.indexOf('_720p')  !== -1) label = '720p';
+      else if (url.indexOf('_480p')  !== -1) label = '480p';
+      else if (url.indexOf('_360p')  !== -1) label = '360p';
+      else if (url.indexOf('_240p')  !== -1) label = '240p';
+
+      q[label] = url;
+      console.log('[TRH] ' + label + ':', url.substring(0, 100));
+    });
+
+    // Fallback: <source> теги
+    if (!Object.keys(q).length) {
+      var re = /<source[^>]+src=["']([^"']+)["'][^>]*>/gi;
+      var m2;
+      while ((m2 = re.exec(html)) !== null) {
+        var srcUrl = cleanUrl(m2[1]);
+        var lb = m2[0].match(/label=["']([^"']+)["']/);
+        var sz = m2[0].match(/size=["']([^"']+)["']/);
+        q[(lb ? lb[1] : '') || (sz ? sz[1] + 'p' : 'HD')] = srcUrl;
+      }
     }
 
-    if (cat) {
-      // Категория: https://trahkino.me/?c={slug}&page={N}
-      var url = HOST + '/?c=' + encodeURIComponent(cat);
-      if (page > 1) url += '&page=' + page;
-      return url;
+    // Fallback: PlayerJS file:'[label]url,[label]url'
+    if (!Object.keys(q).length) {
+      var fm = html.match(/file\s*[:=]\s*["']([^"']+)["']/);
+      if (fm && fm[1]) {
+        var content = fm[1];
+        if (content.indexOf('[') !== -1) {
+          content.split(',').forEach(function (part) {
+            var lm   = part.match(/\[([^\]]+)\]/);
+            var link = part.replace(/\[[^\]]+\]/, '').trim();
+            if (lm && link && link.indexOf('http') === 0) q[lm[1]] = cleanUrl(link);
+          });
+        } else if (content.indexOf('http') === 0) {
+          q['HD'] = cleanUrl(content);
+        }
+      }
     }
 
-    // Главная лента: https://trahkino.me/latest-updates/?page={N}
-    if (page > 1) {
-      return HOST + '/latest-updates/?page=' + page;
-    }
-    return HOST + '/latest-updates/';
+    return q;
   }
 
+  // ----------------------------------------------------------
+  // МЕНЮ
+  // ----------------------------------------------------------
   function buildMenu() {
     return [
-      { title: 'Поиск', search_on: true, playlist_url: NAME + '/search/' },
+      { title: '🔍 Поиск', search_on: true, playlist_url: NAME + '/search/' },
       {
-        title:        'Категории',
-        playlist_url: 'submenu',
-        submenu:      CATS.map(function (c) {
+        title: '📂 Категории', playlist_url: 'submenu',
+        submenu: CATS.map(function (c) {
           return { title: c.name, playlist_url: NAME + '/cat/' + c.slug };
         }),
       },
@@ -210,24 +284,26 @@
   }
 
   // ----------------------------------------------------------
-  // Роутинг
+  // РОУТИНГ
   // ----------------------------------------------------------
   function routeView(url, page, success, error) {
     var cat   = null;
     var query = null;
 
-    var searchMatch = url.match(/[?&]search=([^&]*)/);
-    if (searchMatch) {
-      query = decodeURIComponent(searchMatch[1]);
+    var sm = url.match(/[?&]search=([^&]*)/);
+    if (sm) {
+      query = decodeURIComponent(sm[1]);
     } else if (url.indexOf(NAME + '/cat/') === 0) {
       cat = url.replace(NAME + '/cat/', '').split('?')[0];
+    } else if (url.indexOf(NAME + '/search/') === 0) {
+      query = decodeURIComponent(url.replace(NAME + '/search/', '').split('?')[0]).trim();
     }
 
     var fetchUrl = buildUrl(cat, page, query);
     console.log('[TRH] routeView →', fetchUrl);
 
     httpGet(fetchUrl, function (html) {
-      console.log('[TRH] html длина:', html.length);
+      console.log('[TRH] html длина:', (html || '').length);
       var cards = parseCards(html);
       success({
         results:     cards,
@@ -239,123 +315,45 @@
   }
 
   // ----------------------------------------------------------
-  // [1.1.0] qualities() — ИСПРАВЛЕНО
-  //
-  // Движок: kt_player
-  // В HTML страницы видео содержатся JS-переменные:
-  //   video_url     = 'https://trahkino.me/function/0/https://trahkino.me/get_file/36/{hash}/{folder}/{id}/{id}.mp4/'
-  //   video_alt_url = 'https://trahkino.me/function/0/https://trahkino.me/get_file/36/{hash}/{folder}/{id}/{id}_360p.mp4/'
-  //
-  // URL содержит /function/0/ — прокси самого сайта.
-  // Берём AS-IS, НЕ обрезаем split('?'), НЕ удаляем /function/0/.
-  // Прошлый 404 был именно из-за того что код строил URL без /function/0/.
-  //
-  // Качество определяем по суффиксу в имени файла:
-  //   418475.mp4      → 240p (без суффикса = низшее качество)
-  //   418475_360p.mp4 → 360p
-  //   418475_720p.mp4 → 720p (если есть)
+  // ПАРСЕР API
   // ----------------------------------------------------------
-  function extractQualities(html) {
-    var q = {};
+  var TrhParser = {
 
-    // Паттерн 1: video_url = '...' или video_url: '...'
-    var urlRe    = /video_url\s*[:=]\s*['"]([^'"]+)['"]/i;
-    var altUrlRe = /video_alt_url\s*[:=]\s*['"]([^'"]+)['"]/i;
-
-    var m1 = html.match(urlRe);
-    var m2 = html.match(altUrlRe);
-
-    if (m1 && m1[1]) {
-      var url1 = m1[1].replace(/\\/g, '');
-      // Качество из имени файла: ищем _360p, _720p, _1080p
-      var qm1  = url1.match(/_(\d{3,4}p)\.mp4/i);
-      var lbl1 = qm1 ? qm1[1] : '240p';  // без суффикса = базовое/низшее
-      q[lbl1]  = url1;
-      console.log('[TRH] video_url ' + lbl1 + ':', url1.substring(0, 80));
-    }
-
-    if (m2 && m2[1]) {
-      var url2 = m2[1].replace(/\\/g, '');
-      var qm2  = url2.match(/_(\d{3,4}p)\.mp4/i);
-      var lbl2 = qm2 ? qm2[1] : '360p';  // alt = лучшее качество обычно
-      if (!q[lbl2]) {
-        q[lbl2] = url2;
-        console.log('[TRH] video_alt_url ' + lbl2 + ':', url2.substring(0, 80));
-      }
-    }
-
-    // Резерв: ищем все kt_player-подобные переменные с /function/0/
-    if (!Object.keys(q).length) {
-      console.log('[TRH] Основные паттерны не нашли, пробуем резерв...');
-      var funcRe = /(https?:\/\/trahkino\.me\/function\/0\/[^"'<\s]+\.mp4[^\s"'<]*)/g;
-      var fm;
-      var fi = 0;
-      while ((fm = funcRe.exec(html)) !== null && fi < 5) {
-        var fUrl = fm[1].replace(/\\/g, '');
-        if (fUrl.indexOf('preview') !== -1) continue;
-        var fQm  = fUrl.match(/_(\d{3,4}p)\.mp4/i);
-        var fLbl = fQm ? fQm[1] : ('MP4_' + fi);
-        if (!q[fLbl]) { q[fLbl] = fUrl; fi++; }
-      }
-    }
-
-    return q;
-  }
-
-  // ----------------------------------------------------------
-  // Публичный интерфейс
-  // ----------------------------------------------------------
-  var trhParser = {
-
-    main: function (params, success, error) {
-      routeView(NAME, 1, success, error);
+    main: function (p, s, e) {
+      routeView(NAME, 1, s, e);
     },
 
-    view: function (params, success, error) {
-      routeView(params.url || NAME, params.page || 1, success, error);
+    view: function (p, s, e) {
+      routeView(p.url || NAME, p.page || 1, s, e);
     },
 
-    search: function (params, success, error) {
-      var query    = (params.query || '').trim();
-      var fetchUrl = buildUrl(null, params.page || 1, query);
-      httpGet(fetchUrl, function (html) {
+    search: function (p, s, e) {
+      var query = (p.query || '').trim();
+      httpGet(buildUrl(null, p.page || 1, query), function (html) {
         var cards = parseCards(html);
-        success({
-          title:       'TRH: ' + query,
-          results:     cards,
-          collection:  true,
-          total_pages: cards.length >= 20 ? (params.page || 1) + 1 : 1,
-        });
-      }, error);
+        s({ title: 'TRH: ' + query, results: cards, collection: true,
+            total_pages: cards.length >= 20 ? (p.page || 1) + 1 : 1 });
+      }, e);
     },
 
-    // [1.1.0] qualities() — полностью переписан
     qualities: function (videoPageUrl, success, error) {
-      console.log('[TRH] qualities() → страница:', videoPageUrl);
+      console.log('[TRH] qualities() →', videoPageUrl);
 
       httpGet(videoPageUrl, function (html) {
-        console.log('[TRH] qualities() → html длина:', html.length);
-
-        if (!html || html.length < 500) {
-          error('Страница видео недоступна (html < 500 байт)');
-          return;
-        }
+        console.log('[TRH] html длина:', (html || '').length);
+        if (!html || html.length < 500) { error('html < 500'); return; }
 
         var found = extractQualities(html);
         var keys  = Object.keys(found);
-
-        console.log('[TRH] qualities() → найдено:', keys.length, JSON.stringify(keys));
+        console.log('[TRH] qualities() найдено:', keys.length, JSON.stringify(keys));
 
         if (keys.length > 0) {
           success({ qualities: found });
         } else {
-          // Диагностика
-          console.warn('[TRH] qualities() → ничего не найдено');
-          console.warn('[TRH]   video_url:',     (html.match(/video_url/gi)     || []).length);
-          console.warn('[TRH]   video_alt_url:', (html.match(/video_alt_url/gi) || []).length);
-          console.warn('[TRH]   function/0/:',   (html.match(/function\/0\//gi)  || []).length);
-          console.warn('[TRH]   get_file:',      (html.match(/get_file/gi)      || []).length);
-          console.warn('[TRH]   kt_player:',     (html.match(/kt_player/gi)     || []).length);
+          console.warn('[TRH] video_url:',    (html.match(/video_url/gi)    || []).length);
+          console.warn('[TRH] function/0:',   (html.match(/function\/0/gi)  || []).length);
+          console.warn('[TRH] get_file:',     (html.match(/get_file/gi)     || []).length);
+          console.warn('[TRH] kt_player:',    (html.match(/kt_player/gi)    || []).length);
           error('TrahKino: видео не найдено');
         }
       }, error);
@@ -363,21 +361,18 @@
   };
 
   // ----------------------------------------------------------
-  // Регистрация
+  // РЕГИСТРАЦИЯ
   // ----------------------------------------------------------
   function tryRegister() {
     if (window.AdultPlugin && typeof window.AdultPlugin.registerParser === 'function') {
-      window.AdultPlugin.registerParser(NAME, trhParser);
-      console.log('[TRH] v1.1.0 зарегистрирован');
+      window.AdultPlugin.registerParser(NAME, TrhParser);
+      console.log('[TRH] v' + VERSION + ' зарегистрирован');
       return true;
     }
     return false;
   }
-
   if (!tryRegister()) {
-    var poll = setInterval(function () {
-      if (tryRegister()) clearInterval(poll);
-    }, 200);
+    var poll = setInterval(function () { if (tryRegister()) clearInterval(poll); }, 200);
     setTimeout(function () { clearInterval(poll); }, 5000);
   }
 
