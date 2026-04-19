@@ -1,44 +1,24 @@
 // =============================================================
 // hdtub.js — HDtube Parser для AdultJS (Lampa)
 // =============================================================
-// Версия  : 1.5.0
+// Версия  : 1.5.1
 // Изменения:
-//   [1.5.0] ДИАГНОЗ И FIX воспроизведения:
-//
-//           Проблема: URL вида https://www.hdtube.porn/get_file/6/{hash}/...mp4
-//           требует заголовок Referer: https://www.hdtube.porn/
-//           Плеер Lampa/ExoPlayer запрашивает mp4 напрямую БЕЗ Referer
-//           → сервер отдаёт 403 или редиректит на заглушку
-//
-//           Решение: НЕ срезать function/0/ — использовать его как есть.
-//           URL function/0/https://...get_file/... — это встроенный прокси
-//           самого сайта, который добавляет нужные заголовки.
-//           НО: плеер не умеет открывать URL без https://.
-//
-//           ИТОГОВОЕ РЕШЕНИЕ: пропускать get_file URL через Worker
-//           Worker добавляет Referer автоматически → плеер получает видео.
-//
-//           Изменения cleanUrl():
-//           - [REVERT] НЕ срезаем function/0/ из URL
-//           - [ADD]    wrapWithWorker() — оборачивает get_file URL в Worker
-//
-//           ПРИМЕЧАНИЕ: WORKER_URL берётся из window.AdultPlugin.workerUrl
-//           если доступен, иначе из константы WORKER_URL (задать ниже)
-//
-//   [1.4.0] Срезание function/0/ — ПРИВОДИЛО К 403 (видео не воспроизводилось)
-//   [1.3.0] Срезание function/0/ для абсолютных URL
+//   [1.5.1] FIX: двойной слеш workers.dev//?url=
+//           WORKER_URL с trailing / → trimRight('/') перед /?url=
+//   [1.5.0] wrapWithWorker() — проксируем get_file через Worker
+//           (Worker добавляет Referer: https://www.hdtube.porn/)
+//   [1.4.0] cleanUrl срезал function/0/ → 403 (ОТМЕНЕНО)
+//   [1.3.0] function/0/ для абсолютных URL
 //   [1.2.0] Переписан под структуру p365
 // =============================================================
 
 (function () {
   'use strict';
 
-  var VERSION    = '1.5.0';
+  var VERSION    = '1.5.1';
   var NAME       = 'hdtub';
   var HOST       = 'https://www.hdtube.porn';
   var TAG        = '[hdtub]';
-
-  // ← Замените на ваш Worker URL (тот же что в W137.js)
   var WORKER_URL = 'https://zonaproxy.777b737.workers.dev';
 
   var CATEGORIES = [
@@ -120,7 +100,7 @@
   ];
 
   // ----------------------------------------------------------
-  // ТРАНСПОРТ — для загрузки страниц (не для видео)
+  // ТРАНСПОРТ — для загрузки страниц
   // ----------------------------------------------------------
   function httpGet(url, success, error) {
     if (window.AdultPlugin && typeof window.AdultPlugin.networkRequest === 'function') {
@@ -131,52 +111,49 @@
   }
 
   // ----------------------------------------------------------
-  // getWorkerBase() — получаем базовый URL Worker
-  // Берём из AdultPlugin если есть, иначе из константы
+  // getWorkerBase() — базовый URL Worker без trailing /
+  // [1.5.1] FIX: убираем trailing /  чтобы не было workers.dev//?url=
   // ----------------------------------------------------------
   function getWorkerBase() {
+    var base = WORKER_URL;
     if (window.AdultPlugin && window.AdultPlugin.workerUrl) {
-      var wu = window.AdultPlugin.workerUrl;
-      // Убираем trailing ?url= если есть
-      return wu.replace(/[?&]url=?$/, '');
+      base = window.AdultPlugin.workerUrl;
     }
-    return WORKER_URL;
+    // [1.5.1] Убираем trailing / и ?url= если уже есть
+    base = base.replace(/[/?&]url=?$/, '').replace(/\/+$/, '');
+    return base;
   }
 
   // ----------------------------------------------------------
-  // wrapWithWorker(url) — оборачивает видео-URL через Worker
+  // wrapWithWorker(rawUrl)
   //
-  // Зачем: hdtube /get_file/ требует Referer: https://www.hdtube.porn/
-  //        Worker (W137 v1.3.8+) добавляет его автоматически
-  //        Плеер Lampa получает видео через Worker как обычный https://
+  // Извлекает чистый get_file URL из любого формата и оборачивает
+  // в Worker для добавления Referer: https://www.hdtube.porn/
   //
-  // Входные форматы (оба поддерживаются):
-  //   A) function/0/https://host/get_file/...   (относительный)
-  //   B) https://host/function/0/https://...    (абсолютный)
-  //   C) https://host/get_file/...              (уже чистый)
+  // Входные форматы:
+  //   A) "function/0/https://host/get_file/..."  (относительный)
+  //   B) "https://host/function/0/https://..."   (абсолютный)
+  //   C) "https://host/get_file/..."             (уже чистый)
   //
-  // Выход: WORKER_URL/?url=https://host/get_file/...
+  // [1.5.1] Выход: WORKER_BASE + "/?url=" + encodeURIComponent(cleanUrl)
+  //         (без двойного слеша)
   // ----------------------------------------------------------
   function wrapWithWorker(raw) {
     if (!raw) return '';
     var u = raw.replace(/\\/g, '').trim();
 
-    // Извлекаем вложенный https:// из function/N/
-    // Форма A: относительный "function/0/https://..."
+    // Форма A: относительный "function/N/https://..."
     var relM = u.match(/^\/??function\/\d+\/(https?:\/\/.+)$/);
     if (relM) u = relM[1];
 
-    // Форма B: абсолютный "https://host/function/0/https://..."
+    // Форма B: абсолютный "https://host/function/N/https://..."
     var absM = u.match(/^https?:\/\/[^/]+\/function\/\d+\/(https?:\/\/.+)$/);
     if (absM) u = absM[1];
 
-    // Теперь u = чистый https://host/get_file/... URL
-    // Проверяем что это реально get_file или mp4
     if (!u || u.indexOf('http') !== 0) return '';
 
-    // Оборачиваем в Worker
-    var workerBase = getWorkerBase();
-    var wrapped = workerBase + '/?url=' + encodeURIComponent(u);
+    // [1.5.1] getWorkerBase() уже без trailing /
+    var wrapped = getWorkerBase() + '/?url=' + encodeURIComponent(u);
     console.log(TAG, 'wrapWithWorker:', u.substring(0, 80), '→ Worker');
     return wrapped;
   }
@@ -193,8 +170,7 @@
   }
 
   // ----------------------------------------------------------
-  // ПАРСИНГ КАТАЛОГА
-  // JSON: cardSelector=".item"
+  // ПАРСИНГ КАТАЛОГА — JSON cardSelector=".item"
   // ----------------------------------------------------------
   function parsePlaylist(html) {
     var results = [];
@@ -235,49 +211,41 @@
   // ----------------------------------------------------------
   // ИЗВЛЕЧЕНИЕ КАЧЕСТВ
   //
-  // JSON: kt_player
-  //   video_url     → основное качество (480p/240p — без суффикса)
-  //   video_alt_url → высокое качество (720p/360p — суффикс _720p)
+  // JSON kt_player:
+  //   video_url     → основное (480p, без суффикса)
+  //   video_alt_url → высокое  (720p, суффикс _720p)
   //
-  // [1.5.0] Все URL оборачиваются через wrapWithWorker()
-  //         Worker добавляет Referer: https://www.hdtube.porn/
-  //         что необходимо для доступа к /get_file/ endpoint
-  //
-  // Лейблы определяются по суффиксу имени файла, не по полю
+  // Лейбл определяется по суффиксу имени файла в URL.
+  // Все видео-URL оборачиваются через Worker.
   // ----------------------------------------------------------
   function extractQualities(html) {
     var q   = {};
     var raw = {};
 
-    // Собираем сырые значения из kt_player
-    var fields = [
-      { re: /video_alt_url\s*[:=]\s*['"]([^'"]+)['"]/, key: 'video_alt_url' },
-      { re: /video_url\s*[:=]\s*['"]([^'"]+)['"]/,     key: 'video_url'     },
-    ];
+    // Собираем сырые значения
+    var m1 = html.match(/video_alt_url\s*[:=]\s*['"]([^'"]+)['"]/);
+    var m2 = html.match(/video_url\s*[:=]\s*['"]([^'"]+)['"]/);
+    if (m1) raw['video_alt_url'] = m1[1].trim();
+    if (m2) raw['video_url']     = m2[1].trim();
 
-    fields.forEach(function (f) {
-      var m = html.match(f.re);
-      if (m && m[1]) raw[f.key] = m[1].trim();
-    });
+    console.log(TAG, 'raw video_url:',   (raw['video_url']     || '').substring(0, 80));
+    console.log(TAG, 'raw alt_url:',     (raw['video_alt_url'] || '').substring(0, 80));
 
-    console.log(TAG, 'raw video_url:', (raw.video_url     || '').substring(0, 80));
-    console.log(TAG, 'raw alt_url:',   (raw.video_alt_url || '').substring(0, 80));
-
-    // Обрабатываем каждый найденный URL
-    Object.keys(raw).forEach(function (key) {
+    // Обрабатываем каждый URL
+    ['video_alt_url', 'video_url'].forEach(function (key) {
       var rawUrl = raw[key];
+      if (!rawUrl) return;
 
-      // Определяем лейбл по суффиксу имени файла
+      // Определяем лейбл по суффиксу
       var label;
       if      (rawUrl.indexOf('_1080p') !== -1) label = '1080p';
       else if (rawUrl.indexOf('_720p')  !== -1) label = '720p';
       else if (rawUrl.indexOf('_480p')  !== -1) label = '480p';
       else if (rawUrl.indexOf('_360p')  !== -1) label = '360p';
       else if (rawUrl.indexOf('_240p')  !== -1) label = '240p';
-      else if (key === 'video_alt_url')          label = '720p';  // alt без суффикса = высокое
-      else                                        label = '480p';  // base без суффикса = низкое
+      else if (key === 'video_alt_url')          label = '720p';
+      else                                        label = '480p';
 
-      // [1.5.0] Оборачиваем в Worker
       var proxied = wrapWithWorker(rawUrl);
       if (proxied) {
         q[label] = proxied;
@@ -291,31 +259,25 @@
       var re2 = /<source[^>]+size="([^"]+)"[^>]+src="([^"]+)"/gi;
       var m;
       while ((m = re1.exec(html)) !== null) {
-        if (m[2] !== 'preview' && m[1].indexOf('.mp4') !== -1) {
+        if (m[2] !== 'preview' && m[1].indexOf('.mp4') !== -1)
           q[m[2] + 'p'] = wrapWithWorker(m[1]) || cleanUrl(m[1]);
-        }
       }
       if (!Object.keys(q).length) {
         while ((m = re2.exec(html)) !== null) {
-          if (m[1] !== 'preview' && m[2].indexOf('.mp4') !== -1) {
+          if (m[1] !== 'preview' && m[2].indexOf('.mp4') !== -1)
             q[m[1] + 'p'] = wrapWithWorker(m[2]) || cleanUrl(m[2]);
-          }
         }
       }
     }
 
-    // Fallback: get_file URL напрямую
+    // Fallback: get_file regex
     if (!Object.keys(q).length) {
       var gfRe = /((?:function\/\d+\/)?https?:\/\/[^"'\s]+\/get_file\/[^"'\s]+\.mp4[^"'\s]*)/g;
       var gf;
       while ((gf = gfRe.exec(html)) !== null) {
         if (gf[1].indexOf('preview') !== -1) continue;
-        var gfQ   = gf[1].match(/_(\d+p?)\.mp4/);
-        var gfLbl = gfQ ? gfQ[1] : 'HD';
-        if (!q[gfLbl]) {
-          q[gfLbl] = wrapWithWorker(gf[1]) || cleanUrl(gf[1]);
-          break;
-        }
+        var gfLbl = (gf[1].match(/_(\d+p?)\.mp4/) || [])[1] || 'HD';
+        if (!q[gfLbl]) { q[gfLbl] = wrapWithWorker(gf[1]) || cleanUrl(gf[1]); break; }
       }
     }
 
@@ -398,10 +360,9 @@
         console.log(TAG, 'html длина:', html.length);
         if (!html || html.length < 500) { error('html < 500'); return; }
 
-        // Диагностика
-        console.log(TAG, 'video_url cnt:',   (html.match(/video_url/gi)   || []).length);
-        console.log(TAG, 'get_file cnt:',    (html.match(/get_file/gi)    || []).length);
-        console.log(TAG, 'function/0 cnt:',  (html.match(/function\/0/gi) || []).length);
+        console.log(TAG, 'video_url cnt:',  (html.match(/video_url/gi)   || []).length);
+        console.log(TAG, 'get_file cnt:',   (html.match(/get_file/gi)    || []).length);
+        console.log(TAG, 'function/0 cnt:', (html.match(/function\/0/gi) || []).length);
 
         var found = extractQualities(html);
         var keys  = Object.keys(found);
@@ -410,10 +371,7 @@
         if (keys.length > 0) {
           success({ qualities: found });
         } else {
-          console.warn(TAG, 'FAIL — ни одна стратегия не сработала');
-          console.warn(TAG, 'video_url:',  (html.match(/video_url/gi)  || []).length);
-          console.warn(TAG, 'get_file:',   (html.match(/get_file/gi)   || []).length);
-          console.warn(TAG, '.mp4:',       (html.match(/\.mp4/gi)      || []).length);
+          console.warn(TAG, 'FAIL — все стратегии исчерпаны');
           error('Видео не найдено');
         }
       }, error);
