@@ -182,11 +182,11 @@
       console.log('[hdtub] Item', i, 'clean href:', cleanHref.substring(0, 100));
 
       var imgEl = el.querySelector('img');
-      var pic = '';
+      var  = '';
       if (imgEl) {
-        pic = imgEl.getAttribute('data-src') || 
+         = imgEl.getAttribute('data-src') || 
               imgEl.getAttribute('src') || '';
-        console.log('[hdtub] Item', i, 'img src:', Pic ? Pic.substring(0, 80) : 'none');
+        console.log('[hdtub] Item', i, 'img src:', pic ? pic.substring(0, 80) : 'none');
       }
       
       var titleEl = el.querySelector('a[title]');
