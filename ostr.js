@@ -348,3 +348,47 @@
   }
 
   var OstrParser = {
+    main: function (params, success, error) {
+      routeCatalog('main', 1, success, error);
+    },
+    view: function (params, success, error) {
+      if (params.url && params.url.includes('/video/')) {
+        extractQualities(params.url, success, error);
+      } else {
+        routeCatalog(params.url || 'main', params.page || 1, success, error);
+      }
+    },
+    search: function (params, success, error) {
+      let query = (params.query || '').trim();
+      if (!query) return error('Пустой запрос');
+      networkRequest(buildUrl('search', query, 1), function (html) {
+        let cards = parseCards(html);
+        success({
+          title: 'OstroePorno: ' + query,
+          results: cards,
+          collection: true,
+          total_pages: 3
+        });
+      }, error);
+    },
+    qualities: function (videoPageUrl, success, error) {
+      extractQualities(videoPageUrl, success, error);
+    }
+  };
+
+  function register() {
+    if (window.AdultPlugin && typeof window.AdultPlugin.registerParser === 'function') {
+      window.AdultPlugin.registerParser(NAME, OstrParser);
+      console.log(TAG, 'v' + VERSION + ' успешно зарегистрирован в Adult ядре');
+      return true;
+    }
+    return false;
+  }
+
+  if (!register()) {
+    let interval = setInterval(() => {
+      if (register()) clearInterval(interval);
+    }, 350);
+    setTimeout(() => clearInterval(interval), 10000);
+  }
+})();
