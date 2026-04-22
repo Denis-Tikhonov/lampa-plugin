@@ -1,14 +1,15 @@
 { 
   "channels": [
     { "title": "Закладки", "playlist_url": "local://bookmarks" },
+    { "title": "[TEST]", "playlist_url": "xds"     },
     { "title": "XVideo", "playlist_url": "xv-ru" },
     { "title": "PornoBriz", "playlist_url": "briz"     },
     { "title": "YouJizz", "playlist_url": "yjizz"     },
     { "title": "Porno365Tube", "playlist_url": "p365"     },
-    { "title": "HD tube", "playlist_url": "hdtub"     },
-    { "title": "Phub.net", "playlist_url": "phub"     },
     { "title": "Lenkino", "playlist_url": "lkno"     },
     { "title": "Epta", "playlist_url": "ept"     },
+    { "title": "HD tube", "playlist_url": "hdtub"     },
+    { "title": "Phub.net", "playlist_url": "phub"     },
     { "title": "XGroovy",   "playlist_url": "xgr"               },
     { "title": "XHamster",  "playlist_url": "xham"              },
     { "title": "TKino", "playlist_url": "trh"     },
@@ -19,6 +20,5 @@
     { "title": "EPorner", "playlist_url": "epor"     },
     { "title": "BongaCams", "playlist_url": "bcms"     },
     { "title": "ZKino", "playlist_url": "z777"     },
-    { "title": "xds [TEST]", "playlist_url": "xds"     }
    ]
   }
