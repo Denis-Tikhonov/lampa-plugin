@@ -1,76 +1,24 @@
-{
+{ 
   "channels": [
- {
-      "title": "Закладки",
-      "playlist_url": "local://bookmarks"
-    },
-    {
-      "title": "XVideo",
-      "playlist_url": "xv-ru"
-    },
-    {
-      "title": "PornoBriz",
-      "playlist_url": "briz"
-    },
-    {
-      "title": "YouJizz",
-      "playlist_url": "yjizz"
-    },
-    {
-      "title": "Porno365Tube",
-      "playlist_url": "p365"
-    },
-    {
-      "title": "HD tube",
-      "playlist_url": "hdtub"
-    },
-    {
-      "title": "Phub.net",
-      "playlist_url": "phub"
-    },
-    {
-      "title": "Lenkino",
-      "playlist_url": "lkno"
-    },
-    {
-      "title": "Epta",
-      "playlist_url": "ept"
-    },
-    {
-      "title": "TKino",
-      "playlist_url": "trh"
-    },
-    {
-      "title": "BigTitsLust",
-      "playlist_url": "btit"
-    },
-    {
-     "title": "PornOne",
-     "playlist_url": "pone"
-    },
-    {
-      "title": "Ostroe",
-      "playlist_url": "ostr"
-    },
-    {
-      "title": "PTop",
-      "playlist_url": "ptop"
-    },
-    {
-      "title": "EPorner",
-      "playlist_url": "epor"
-    },
-     {
-      "title": "BongaCams",
-      "playlist_url": "bcms"
-    },
-    {
-      "title": "ZKino",
-      "playlist_url": "z777"
-    },
-    {
-      "title": "xds [TEST]",
-      "playlist_url": "xds"
-    }
-  ]
-}
+    { "title": "Закладки", "playlist_url": "local://bookmarks" },
+    { "title": "XVideo", "playlist_url": "xv-ru" },
+    { "title": "PornoBriz", "playlist_url": "briz"     },
+    { "title": "YouJizz", "playlist_url": "yjizz"     },
+    { "title": "Porno365Tube", "playlist_url": "p365"     },
+    { "title": "HD tube", "playlist_url": "hdtub"     },
+    { "title": "Phub.net", "playlist_url": "phub"     },
+    { "title": "Lenkino", "playlist_url": "lkno"     },
+    { "title": "Epta", "playlist_url": "ept"     },
+    { "title": "XGroovy",   "playlist_url": "xgr"               },
+    { "title": "XHamster",  "playlist_url": "xham"              },
+    { "title": "TKino", "playlist_url": "trh"     },
+    { "title": "BigTitsLust", "playlist_url": "btit"     },
+    { "title": "PornOne", "playlist_url": "pone"     },
+    { "title": "Ostroe", "playlist_url": "ostr"     },
+    { "title": "PTop", "playlist_url": "ptop"     },
+    { "title": "EPorner", "playlist_url": "epor"     },
+    { "title": "BongaCams", "playlist_url": "bcms"     },
+    { "title": "ZKino", "playlist_url": "z777"     },
+    { "title": "xds [TEST]", "playlist_url": "xds"     }
+   ]
+  }
