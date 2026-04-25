@@ -714,6 +714,10 @@
             'xv-ru.com':            'xv-ru',
             'ukr.bongacams.com':    'bcms',
             'xds.com':              'xds',
+            'ru.anysex.com':      'ansx',
+'ru.mylust.com':      'mlst',
+'www.xtits.xxx':      'xtit',
+'www.analdin.com':    'anld',
           };
           parserName = domainMap[hostname] || stripped.split('/')[0];
         } catch(e) {
@@ -788,6 +792,10 @@
                 'xv-ru.com':            'xv-ru',
                 'ukr.bongacams.com':    'bcms',
                 'xds.com':              'xds',
+                'ru.anysex.com':      'ansx',
+'ru.mylust.com':      'mlst',
+'www.xtits.xxx':      'xtit',
+'www.analdin.com':    'anld',
               };
               _pn = _dm[_hn] || _ps.split('/')[0];
             } catch(e2) { _pn = 'briz'; }
