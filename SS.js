@@ -715,9 +715,12 @@
             'ukr.bongacams.com':    'bcms',
             'xds.com':              'xds',
             'ru.anysex.com':      'ansx',
-'ru.mylust.com':      'mlst',
-'www.xtits.xxx':      'xtit',
-'www.analdin.com':    'anld',
+            'ru.mylust.com':      'mlst',
+            'www.xtits.xxx':      'xtit',
+            'www.analdin.com':    'anld',
+            'inporn.com':         'iprn',
+            'www.winporn.club':   'vprn',
+            'www.viptube.com':    'vtub',
           };
           parserName = domainMap[hostname] || stripped.split('/')[0];
         } catch(e) {
@@ -793,9 +796,12 @@
                 'ukr.bongacams.com':    'bcms',
                 'xds.com':              'xds',
                 'ru.anysex.com':      'ansx',
-'ru.mylust.com':      'mlst',
-'www.xtits.xxx':      'xtit',
-'www.analdin.com':    'anld',
+                'ru.mylust.com':      'mlst',
+                'www.xtits.xxx':      'xtit',
+                'www.analdin.com':    'anld',
+                'inporn.com':         'iprn',
+                'www.winporn.club':   'vprn',
+                'www.viptube.com':    'vtub',
               };
               _pn = _dm[_hn] || _ps.split('/')[0];
             } catch(e2) { _pn = 'briz'; }
