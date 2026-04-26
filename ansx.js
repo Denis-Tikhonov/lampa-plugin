@@ -1,6 +1,6 @@
 // =============================================================
 // ansx.js — Парсер ru.anysex.com для AdultJS
-// Version  : 1.0.0
+// Version  : 1.1.0
 // Site     : https://ru.anysex.com
 // Engine   : KVS (Kernel Video Sharing)
 // Strategy : SSR каталог, <source title="1080p"> для qualities
@@ -402,7 +402,7 @@
       return page > 1 ? base + '?page=' + page : base;
     }
     // main
-    base = HOST + '/video/';
+    base = HOST + '/';
     return page > 1 ? base + '?page=' + page : base;
   }
 
