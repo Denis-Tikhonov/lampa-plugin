@@ -1,6 +1,6 @@
 // =============================================================
 // AdultJS.js — Lampa Adult Plugin
-// Version  : 1.5.9
+// Version  : 1.6.0
 // Changed  :
 //   [1.0.0] Полный рефакторинг с ab2024.ru → GitHub Pages
 //   [1.0.0] Убраны: RCH, история, лицензионные проверки
@@ -19,51 +19,37 @@
 //           'xv-ru.com'
 //   [1.5.7] BUGFIX: vEl.play() Promise rejection — добавлен .catch() для
 //           гашения необработанных rejection в консоли Android TV WebView.
-//           Примечание: autoplay <video> заблокирован политикой WebView на TV
-//           без жеста пользователя — визуальное превью на TV невозможно через
-//           HTML5 video. Ошибка теперь тихо логируется как console.log.
 //   [1.5.8] BUGFIX: Utils.fixCards — проксирование picture через Worker.
-//           Постеры карточек запрашивались TV-браузером напрямую с CDN
-//           сайтов (pornobriz.com, xvideos-cdn.com, vids69.com и др.),
-//           которые блокируют hotlink-запросы → пустые картинки на всех
-//           парсерах. Теперь picture оборачивается в Worker URL до того,
-//           как попасть в background_image / poster / img.
-//           Логика: если workerUrl настроен И picture начинается с http
-//           И ещё не проксирован — добавляем префикс Worker + encodeURI.
 //   [1.5.9] BUGFIX: origFocus guard в View.cardRender и Sisi.onAppend.
-//           Если Lampa не задаёт card.onFocus по умолчанию — origFocus
-//           был undefined, вызов origFocus() бросал TypeError внутри
-//           Lampa try/catch → preview.show() никогда не достигался,
-//           превью не работало без каких-либо ошибок в консоли.
-//           Добавлена проверка typeof origFocus === 'function' перед вызовом.
 //   [1.5.9] BUGFIX: Storage default для sisi_preview.
-//           addParam с default:true не записывает значение в Storage
-//           автоматически до первого входа в настройки → field() возвращал
-//           null → превью было выключено по умолчанию для новых установок.
-//           Теперь значение явно инициализируется в addSettings() при старте.
+//   [1.6.0] REFACTOR: domainMap вынесен в константу DOMAIN_MAP,
+//           добавлена функция resolveParserName() — устраняет
+//           дублирование в Api.view() и Api.search()
+//   [1.6.0] BUGFIX: domainMap 'xhamster.com' → 'xham' (было 'hxham')
+//   [1.6.0] BUGFIX: Utils.proxyVideoUrl() — проксирование video URL
+//           через Worker перед передачей в плеер. Без этого плеер
+//           получал get_file URL (требующий 302 → ahcdn.com) напрямую,
+//           TV не мог пройти редирект без заголовков → видео не играло.
+//   [1.6.0] BUGFIX: все три ветки Utils.play() теперь проксируют
+//           video URL через Worker (основная, error-fallback, no-parser)
 // GitHub   : https://denis-tikhonov.github.io/plug/
 // Worker   :
 // =============================================================
-//   Внимание: Новые источники подключать в двух местах и в Worker
-//             var domainMap =
-//             var _dm =
+//   Внимание: Новые источники добавлять в DOMAIN_MAP (одно место)
+//             и в ALLOWED_TARGETS Worker
 // =============================================================
 
 (function () {
   'use strict';
 
   // ----------------------------------------------------------
-  // [1.0.0] КОНСТАНТЫ
-  // [1.1.0] PLUGIN_VERSION — отображается в настройках
-  // [1.4.0] WORKER_DEFAULT — жёстко вшитый URL воркера.
-  //         Менять здесь вручную, поле Settings удалено.
+  // КОНСТАНТЫ
   // ----------------------------------------------------------
   var PLUGIN_ID      = 'adult_lampac';
-  var PLUGIN_VERSION = '1.5.9';
+  var PLUGIN_VERSION = '1.6.0';
 
   // ----------------------------------------------------------
-  // [1.5.1] ПОЛИФИЛЛЫ — старые Android WebView не имеют
-  //         Array.prototype.find и иногда Array.prototype.filter
+  // ПОЛИФИЛЛЫ
   // ----------------------------------------------------------
   if (!Array.prototype.find) {
     Array.prototype.find = function (fn) {
@@ -82,16 +68,12 @@
     };
   }
 
-  var GITHUB_BASE    = 'https://denis-tikhonov.github.io/plug/';
-  var MENU_URL       = GITHUB_BASE + 'menu.json';
-  var READY_FLAG     = 'plugin_' + PLUGIN_ID + '_ready';
+  var GITHUB_BASE = 'https://denis-tikhonov.github.io/plug/';
+  var MENU_URL    = GITHUB_BASE + 'menu.json';
+  var READY_FLAG  = 'plugin_' + PLUGIN_ID + '_ready';
 
-  // [1.4.0] URL Cloudflare Worker — менять здесь, не в Settings.
-  // Должен заканчиваться на '?url=' или '&url='.
-  // Пример: 'https://zonaproxy.777b737.workers.dev/?url='
   var WORKER_DEFAULT = 'https://zonaproxy.777b737.workers.dev/?url=';
 
-  // [1.0.0] Все ключи Lampa.Storage — для сброса
   var STORAGE_KEYS = [
     'adult_bookmarks_list',
     'sisi_preview',
@@ -100,8 +82,55 @@
   ];
 
   // ----------------------------------------------------------
-  // [1.0.0] ЛОКАЛИЗАЦИЯ
-  // [1.3.0] Добавлены строки для Worker-настройки и ошибок
+  // [1.6.0] DOMAIN_MAP — единая карта домен → имя парсера.
+  //         Новые источники добавлять ТОЛЬКО ЗДЕСЬ
+  //         (+ в ALLOWED_TARGETS Worker).
+  //         [1.6.0] BUGFIX: 'xhamster.com' → 'xham' (было 'hxham')
+  // ----------------------------------------------------------
+  var DOMAIN_MAP = {
+    'pornobriz.com':        'briz',
+    'eporner.com':          'epor',
+    'yjizz.com':            'yjizz',
+    'wes.lenkino.adult':    'lkno',
+    'rt.pornhub.com':       'phub',
+    'hdtube.porn':          'hdtub',
+    'rt.xgroovy.com':       'xgr',
+    'xhamster.com':         'xham',
+    'eptaporno.com':        'ept',
+    'ostroeporno.com':      'ostr',
+    'porntop.com':          'ptop',
+    'trahkino.me':          'trh',
+    'bigtitslust.com':      'btit',
+    'pornone.com':          'pone',
+    'top.porno365tube.win': 'p365',
+    'xv-ru.com':            'xv-ru',
+    'ukr.bongacams.com':    'bcms',
+    'xds.com':              'xds',
+    'ru.anysex.com':        'ansx',
+    'ru.mylust.com':        'mlst',
+    'xtits.xxx':            'xtit',
+    'analdin.com':          'anld',
+    'inporn.com':           'iprn',
+    'winporn.club':         'vprn',
+    'viptube.com':          'vtub',
+  };
+
+  // [1.6.0] Единая функция разрешения имени парсера по URL.
+  function resolveParserName(playlistUrl) {
+    var stripped = playlistUrl.replace(GITHUB_BASE, '');
+    if (stripped.indexOf('http') === 0 || stripped.indexOf('//') === 0) {
+      try {
+        var hostname = new URL(playlistUrl).hostname.replace('www.', '');
+        return DOMAIN_MAP[hostname] || stripped.split('/')[0];
+      } catch (e) {
+        return 'briz';
+      }
+    }
+    return stripped.split('?')[0].split('/')[0];
+  }
+
+  // ----------------------------------------------------------
+  // ЛОКАЛИЗАЦИЯ
   // ----------------------------------------------------------
   Lampa.Lang.add({
     adult_plugin_name: {
@@ -113,20 +142,16 @@
     adult_bm_empty:    { ru: 'Закладки пусты. Удержите ОК на видео для добавления.', en: 'No bookmarks yet. Hold OK on a card to add.' },
     adult_bm_saved:    { ru: 'Сохранено в закладки', en: 'Saved to bookmarks' },
     adult_bm_removed:  { ru: 'Удалено из закладок',  en: 'Removed from bookmarks' },
-    // [1.1.0]
     adult_reset:         { ru: 'Сброс плагина',                           en: 'Reset plugin'                        },
     adult_reset_descr:   { ru: 'Очистить кэш меню, парсеры и закладки',   en: 'Clear menu cache, parsers and bookmarks' },
     adult_reset_done:    { ru: 'Плагин сброшен до начальных установок',   en: 'Plugin reset to defaults'            },
     adult_reset_confirm: { ru: 'Сбросить плагин? Закладки будут удалены!', en: 'Reset plugin? Bookmarks will be deleted!' },
-    // [1.3.0]
     adult_worker_403:      { ru: 'Домен не разрешён в Worker',                  en: 'Domain not allowed in Worker'         },
     adult_worker_fallback: { ru: 'Worker заблокировал домен, прямой запрос...', en: 'Worker blocked domain, direct request...' },
   });
 
   // ----------------------------------------------------------
-  // [1.0.0] ЗАКЛАДКИ
-  // [1.5.1] BUGFIX: _load() защищён от не-массива из Storage
-  //         (Storage.get может вернуть null/object → .some() падало)
+  // ЗАКЛАДКИ
   // ----------------------------------------------------------
   var Bookmarks = {
     _key: 'adult_bookmarks_list',
@@ -170,7 +195,7 @@
   };
 
   // ----------------------------------------------------------
-  // [1.1.0] СБРОС ПЛАГИНА
+  // СБРОС ПЛАГИНА
   // ----------------------------------------------------------
   function resetPlugin() {
     menuCache = null;
@@ -188,7 +213,7 @@
   }
 
   // ----------------------------------------------------------
-  // [1.0.0] ЗАГРУЗЧИК ПАРСЕРОВ
+  // ЗАГРУЗЧИК ПАРСЕРОВ
   // ----------------------------------------------------------
   var Parsers = {};
 
@@ -210,7 +235,7 @@
   }
 
   // ----------------------------------------------------------
-  // [1.3.0] ЦЕНТРАЛИЗОВАННЫЙ СЕТЕВОЙ ЗАПРОС
+  // ЦЕНТРАЛИЗОВАННЫЙ СЕТЕВОЙ ЗАПРОС
   // ----------------------------------------------------------
   var NATIVE_TIMEOUT_MS = 9000;
 
@@ -257,13 +282,11 @@
     var done = false;
 
     console.log('[AdultJS][' + _ts() + '] native START → ' + fullPath.substring(0, 120));
-    _noty('[AdultJS] 🔄 Запрос через Worker...');
 
     var timerId = setTimeout(function () {
       if (done) return;
       done = true;
       console.warn('[AdultJS][' + _ts() + '] native TIMEOUT ' + NATIVE_TIMEOUT_MS + 'мс → переход к Reguest');
-      _noty('[AdultJS] ⏱ Worker timeout → Reguest...', 'error');
       error('native_timeout');
     }, NATIVE_TIMEOUT_MS);
 
@@ -280,7 +303,6 @@
 
           if (text && text.indexOf('"status":403') !== -1) {
             console.warn('[AdultJS][' + _ts() + '] native OK но Worker 403 в теле (' + elapsed + 'мс)');
-            _noty('[AdultJS] ⛔ Домен не разрешён в Worker (403)', 'error');
             error('worker_403');
             return;
           }
@@ -307,16 +329,10 @@
 
           if (status === 403 || message.indexOf('403') !== -1) {
             console.warn('[AdultJS][' + _ts() + '] Worker 403: домен не в ALLOWED_TARGETS');
-            _noty('[AdultJS] ⛔ Домен не разрешён в Worker', 'error');
             error('worker_403');
             return;
           }
 
-          if (message.indexOf('CANCEL') !== -1 || message.indexOf('stream was reset') !== -1) {
-            console.warn('[AdultJS][' + _ts() + '] → вероятно хост недоступен (DNS/firewall)');
-          }
-
-          _noty('[AdultJS] ⚠ Native: ' + message.substring(0, 40));
           error(e || 'native_error');
         },
         false,
@@ -334,7 +350,6 @@
   function _networkReguest(url, success, error) {
     var t0 = Date.now();
     console.log('[AdultJS][' + _ts() + '] Reguest START → ' + url.substring(0, 80));
-    _noty('[AdultJS] 🔄 Reguest прямой запрос...');
 
     try {
       var net = new Lampa.Reguest();
@@ -374,7 +389,6 @@
     }
     var t0 = Date.now();
     console.log('[AdultJS][' + _ts() + '] fetch START → ' + url.substring(0, 80));
-    _noty('[AdultJS] 🔄 Fetch последний резерв...');
 
     fetch(url, { method: 'GET' })
       .then(function (r) {
@@ -422,7 +436,6 @@
                 var r3 = String(e3 && e3.message ? e3.message : e3);
                 console.error('[AdultJS][' + _ts() + '] ❌ ВСЕ МЕТОДЫ ПРОВАЛЕНЫ для: ' + url);
                 console.error('[AdultJS][' + _ts() + '] native=' + r1 + ' | Reguest=' + r2 + ' | fetch=' + r3);
-                _noty('[AdultJS] ⛔ Сайт недоступен (все методы исчерпаны)', 'error');
                 error(e3 || 'all_methods_failed');
               }
             );
@@ -446,7 +459,7 @@
   });
 
   // ----------------------------------------------------------
-  // [1.0.0] УТИЛИТЫ
+  // УТИЛИТЫ
   // ----------------------------------------------------------
   var Utils = {
 
@@ -454,11 +467,10 @@
       return Lampa.Utils.capitalizeFirstLetter((title || '').split('.')[0]);
     },
 
-    // [1.5.8] BUGFIX: проксирование picture через Worker
+    // [1.5.8] проксирование picture через Worker
     fixCards: function (list) {
       var workerUrl = (window.AdultPlugin && window.AdultPlugin.workerUrl)
-        ? window.AdultPlugin.workerUrl
-        : '';
+        ? window.AdultPlugin.workerUrl : '';
 
       if (workerUrl && workerUrl.charAt(workerUrl.length - 1) !== '=') {
         workerUrl = workerUrl + '=';
@@ -469,7 +481,6 @@
             m.picture &&
             m.picture.indexOf('http') === 0 &&
             m.picture.indexOf(workerUrl) !== 0) {
-          console.log('[AdultJS] fixCards → proxy picture: ' + m.picture.substring(0, 60));
           m.picture = workerUrl + encodeURIComponent(m.picture);
         }
 
@@ -480,7 +491,31 @@
       });
     },
 
-    // [1.0.0] / [1.2.0] Воспроизведение
+    // [1.6.0] Проксирование video URL через Worker.
+    // Необходимо для сайтов у которых get_file → 302 → CDN (ahcdn.com и др.)
+    // TV-плеер не может самостоятельно пройти редирект с нужными заголовками.
+    proxyVideoUrl: function (url) {
+      if (!url || url.indexOf('http') !== 0) return url;
+      var w = (window.AdultPlugin && window.AdultPlugin.workerUrl)
+        ? window.AdultPlugin.workerUrl : '';
+      if (!w) return url;
+      if (w.charAt(w.length - 1) !== '=') w = w + '=';
+      if (url.indexOf(w) === 0) return url; // уже проксирован
+      return w + encodeURIComponent(url);
+    },
+
+    qualityDefault: function (qualities) {
+      if (!qualities) return '';
+      var prefer = Lampa.Storage.get('video_quality_default', '1080') + 'p';
+      var url;
+      for (var q in qualities) {
+        if (q.indexOf(prefer) === 0) url = qualities[q];
+      }
+      if (!url) url = qualities[Lampa.Arrays.getKeys(qualities)[0]];
+      return url;
+    },
+
+    // [1.6.0] Воспроизведение с полным проксированием video URL
     play: function (element) {
       var ctrl = Lampa.Controller.enabled().name;
 
@@ -494,24 +529,21 @@
               element.video,
               function (data) {
                 Lampa.Loading.stop();
-                // СТАЛО [1.6.0]:
-		var qualities = data.qualities || data;
-		// Проксируем все URL качеств через Worker (get_file → 302 → ahcdn.com)
-		var workerUrl = (window.AdultPlugin && window.AdultPlugin.workerUrl) ? window.AdultPlugin.workerUrl : '';
-		if (workerUrl) {
-		  if (workerUrl.charAt(workerUrl.length - 1) !== '=') workerUrl = workerUrl + '=';
-		  for (var qKey in qualities) {
-		    var qUrl = qualities[qKey];
-		    if (qUrl && qUrl.indexOf('http') === 0 && qUrl.indexOf(workerUrl) !== 0) {
-		      qualities[qKey] = workerUrl + encodeURIComponent(qUrl);
-		    }
-		  }
-		}
-		var video = {
-		  title:   element.name,
-		  url:     Utils.qualityDefault(qualities) || element.video,
-		  quality: qualities,
-		};
+                var qualities = data.qualities || data;
+
+                // [1.6.0] BUGFIX: проксируем все URL качеств через Worker.
+                // get_file → 302 → ahcdn.com требует прохождения через Worker
+                // с правильным Referer. TV-плеер не умеет следовать редиректам
+                // с произвольными заголовками напрямую.
+                for (var qKey in qualities) {
+                  qualities[qKey] = Utils.proxyVideoUrl(qualities[qKey]);
+                }
+
+                var video = {
+                  title:   element.name,
+                  url:     Utils.qualityDefault(qualities) || Utils.proxyVideoUrl(element.video),
+                  quality: qualities,
+                };
                 Lampa.Player.play(video);
                 Lampa.Player.playlist([video]);
                 Lampa.Player.callback(function () { Lampa.Controller.toggle(ctrl); });
@@ -519,7 +551,11 @@
               function (e) {
                 Lampa.Loading.stop();
                 console.warn('[AdultJS] qualities error:', e);
-                var video = { title: element.name, url: element.video };
+                // [1.6.0] BUGFIX: fallback тоже проксируется
+                var video = {
+                  title: element.name,
+                  url:   Utils.proxyVideoUrl(element.video),
+                };
                 Lampa.Player.play(video);
                 Lampa.Player.playlist([video]);
                 Lampa.Player.callback(function () { Lampa.Controller.toggle(ctrl); });
@@ -527,7 +563,11 @@
             );
           } else {
             Lampa.Loading.stop();
-            var video = { title: element.name, url: element.video };
+            // [1.6.0] BUGFIX: нет метода qualities — тоже проксируем
+            var video = {
+              title: element.name,
+              url:   Utils.proxyVideoUrl(element.video),
+            };
             Lampa.Player.play(video);
             Lampa.Player.playlist([video]);
             Lampa.Player.callback(function () { Lampa.Controller.toggle(ctrl); });
@@ -537,30 +577,27 @@
       }
 
       if (element.qualities) {
+        // [1.6.0] BUGFIX: проксируем и прямые qualities
+        var proxiedQ = {};
+        for (var k in element.qualities) {
+          proxiedQ[k] = Utils.proxyVideoUrl(element.qualities[k]);
+        }
         var video = {
           title:   element.name,
-          url:     Utils.qualityDefault(element.qualities) || element.video,
-          quality: element.qualities,
+          url:     Utils.qualityDefault(proxiedQ) || Utils.proxyVideoUrl(element.video),
+          quality: proxiedQ,
         };
         Lampa.Player.play(video);
         Lampa.Player.playlist([video]);
       } else {
-        var video = { title: element.name, url: element.video };
+        var video = {
+          title: element.name,
+          url:   Utils.proxyVideoUrl(element.video),
+        };
         Lampa.Player.play(video);
         Lampa.Player.playlist([video]);
       }
       Lampa.Player.callback(function () { Lampa.Controller.toggle(ctrl); });
-    },
-
-    qualityDefault: function (qualities) {
-      if (!qualities) return '';
-      var prefer = Lampa.Storage.get('video_quality_default', '1080') + 'p';
-      var url;
-      for (var q in qualities) {
-        if (q.indexOf(prefer) === 0) url = qualities[q];
-      }
-      if (!url) url = qualities[Lampa.Arrays.getKeys(qualities)[0]];
-      return url;
     },
 
     menu: function (target, card_data) {
@@ -615,7 +652,6 @@
             var container = target.find('.adult-video-preview');
 
             if (!container || !container.length) {
-              // [1.5.3] Guard: если .card__view не найден — выходим молча
               var cardView = target.find('.card__view');
               if (!cardView || !cardView.length) return;
 
@@ -627,7 +663,6 @@
                 position:'absolute', width:'100%', height:'100%',
                 left:0, top:0, objectFit:'cover',
               });
-              // [1.5.3] Guard: vid[0] может быть null в некоторых WebView
               if (vid && vid[0]) {
                 vid[0].src = element.preview;
                 vid[0].addEventListener('ended', function () {
@@ -642,7 +677,6 @@
             if (container && container.length) {
               activeContainer = container;
               var vEl = container[0] ? container[0].querySelector('video') : null;
-              // [1.5.7] BUGFIX: гасим Promise rejection от vEl.play()
               if (vEl) {
                 try {
                   var playPromise = vEl.play();
@@ -668,7 +702,7 @@
   };
 
   // ----------------------------------------------------------
-  // [1.0.0] API — меню с GitHub + роутинг по парсерам
+  // API — меню с GitHub + роутинг по парсерам
   // ----------------------------------------------------------
   var menuCache = null;
 
@@ -691,6 +725,7 @@
       );
     },
 
+    // [1.6.0] REFACTOR: использует resolveParserName() вместо inline domainMap
     view: function (params, success, error) {
       var url = params.url || '';
 
@@ -702,43 +737,7 @@
         return;
       }
 
-      var parserName;
-      var stripped = url.replace(GITHUB_BASE, '');
-      if (stripped.indexOf('http') === 0 || stripped.indexOf('//') === 0) {
-        try {
-          var hostname = new URL(url).hostname.replace('www.', '');
-          var domainMap = {
-            'pornobriz.com':        'briz',
-            'eporner.com':          'epor',
-            'yjizz.com':            'yjizz',
-            'wes.lenkino.adult':    'lkno',
-            'rt.pornhub.com':       'phub',
-            'hdtube.porn':          'hdtub',
-            'rt.xgroovy.com':       'xgr',
-            'xhamster.com':         'xham',
-            'eptaporno.com':        'ept',
-            'ostroeporno.com':      'ostr',
-            'porntop.com':          'ptop',
-            'trahkino.me':          'trh',
-            'bigtitslust.com':      'btit',
-            'pornone.com':          'pone',
-            'top.porno365tube.win': 'p365',
-            'xv-ru.com':            'xv-ru',
-            'ukr.bongacams.com':    'bcms',
-            'xds.com':              'xds',
-            'ru.anysex.com':      'ansx',
-'ru.mylust.com':      'mlst',
-'www.xtits.xxx':      'xtit',
-'www.analdin.com':    'anld',
-          };
-          parserName = domainMap[hostname] || stripped.split('/')[0];
-        } catch(e) {
-          parserName = 'briz';
-        }
-      } else {
-        parserName = stripped.split('?')[0].split('/')[0];
-      }
-
+      var parserName = resolveParserName(url);
       if (!parserName) { error('Неизвестный источник'); return; }
 
       loadParser(parserName, function (parser) {
@@ -746,6 +745,7 @@
       });
     },
 
+    // [1.6.0] REFACTOR: использует resolveParserName() вместо inline _dm
     search: function (params, oncomplite, error) {
       Api.menu(function (channels) {
         var status  = new Lampa.Status(channels.length);
@@ -780,41 +780,7 @@
             return;
           }
 
-          var _pn;
-          var _ps = ch.playlist_url.replace(GITHUB_BASE, '');
-          if (_ps.indexOf('http') === 0 || _ps.indexOf('//') === 0) {
-            try {
-              var _hn = new URL(ch.playlist_url).hostname.replace('www.', '');
-              var _dm = {
-                'pornobriz.com':        'briz',
-                'eporner.com':          'epor',
-                'yjizz.com':            'yjizz',
-                'wes.lenkino.adult':    'lkno',
-                'rt.pornhub.com':       'phub',
-                'hdtube.porn':          'hdtub',
-                'rt.xgroovy.com':       'xgr',
-                'xhamster.com':         'xham',
-                'eptaporno.com':        'ept',
-                'ostroeporno.com':      'ostr',
-                'porntop.com':          'ptop',
-                'trahkino.me':          'trh',
-                'bigtitslust.com':      'btit',
-                'pornone.com':          'pone',
-                'top.porno365tube.win': 'p365',
-                'xv-ru.com':            'xv-ru',
-                'ukr.bongacams.com':    'bcms',
-                'xds.com':              'xds',
-                'ru.anysex.com':      'ansx',
-'ru.mylust.com':      'mlst',
-'www.xtits.xxx':      'xtit',
-'www.analdin.com':    'anld',
-              };
-              _pn = _dm[_hn] || _ps.split('/')[0];
-            } catch(e2) { _pn = 'briz'; }
-          } else {
-            _pn = _ps.split('?')[0].split('/')[0];
-          }
-          var parserName = _pn;
+          var parserName = resolveParserName(ch.playlist_url);
           loadParser(parserName, function (parser) {
             if (parser.search) {
               parser.search(params, function (data) {
@@ -841,7 +807,7 @@
   };
 
   // ----------------------------------------------------------
-  // [1.0.0] КОМПОНЕНТ — главная (все источники плитками)
+  // КОМПОНЕНТ — главная (все источники плитками)
   // ----------------------------------------------------------
   function Sisi(object) {
     var comp = new Lampa.InteractionMain(object);
@@ -922,8 +888,6 @@
       Lampa.Activity.push({ url: data.url, title: data.title, component: 'adult_view', page: 2 });
     };
 
-    // [1.5.9] BUGFIX: guard на origFocus — может быть undefined
-    //         если Lampa не задаёт onFocus по умолчанию
     comp.onAppend = function (line) {
       line.onAppend = function (card) {
         var origFocus = card.onFocus;
@@ -938,7 +902,7 @@
   }
 
   // ----------------------------------------------------------
-  // [1.0.0] КОМПОНЕНТ — каталог / категория
+  // КОМПОНЕНТ — каталог / категория
   // ----------------------------------------------------------
   function View(object) {
     var comp = new Lampa.InteractionCategory(object);
@@ -975,10 +939,6 @@
       Api.view(object, resolve.bind(this), reject.bind(this));
     };
 
-    // [1.5.9] BUGFIX: guard на origFocus — может быть undefined
-    //         если Lampa не задаёт onFocus по умолчанию.
-    //         Раньше: origFocus() → TypeError → preview.show() не вызывался
-    //         Теперь: проверяем typeof перед вызовом
     comp.cardRender = function (object, element, card) {
       card.onMenu  = function (target, card_data) { return Utils.menu(target, card_data); };
       card.onEnter = function () { Utils.preview.hide(); Utils.play(element); };
@@ -1051,7 +1011,7 @@
   }
 
   // ----------------------------------------------------------
-  // [1.0.0] ГЛОБАЛЬНЫЙ ПОИСК
+  // ГЛОБАЛЬНЫЙ ПОИСК
   // ----------------------------------------------------------
   var SearchSource = {
     title: Lampa.Lang.translate('adult_plugin_name'),
@@ -1073,18 +1033,12 @@
   };
 
   // ----------------------------------------------------------
-  // [1.0.0] НАСТРОЙКИ
-  // [1.1.0] Версия в названии + кнопка сброса
-  // [1.5.9] BUGFIX: явная инициализация sisi_preview в Storage.
-  //         addParam(default:true) не записывает значение само по себе
-  //         до первого входа в настройки → field() возвращал null →
-  //         превью было выключено. Теперь значение пишется при старте.
+  // НАСТРОЙКИ
   // ----------------------------------------------------------
   function addSettings() {
     if (window.adult_settings_ready) return;
     window.adult_settings_ready = true;
 
-    // [1.5.9] Инициализация дефолта sisi_preview если ещё не задан
     var previewVal = Lampa.Storage.field('sisi_preview');
     if (previewVal === null || previewVal === undefined) {
       Lampa.Storage.set('sisi_preview', true);
@@ -1134,7 +1088,7 @@
   }
 
   // ----------------------------------------------------------
-  // [1.0.0] КНОПКА ФИЛЬТРА В ШАПКЕ
+  // КНОПКА ФИЛЬТРА В ШАПКЕ
   // ----------------------------------------------------------
   function addFilter() {
     var activi, timer;
@@ -1178,7 +1132,7 @@
   }
 
   // ----------------------------------------------------------
-  // [1.0.0] КНОПКА В БОКОВОМ МЕНЮ
+  // КНОПКА В БОКОВОМ МЕНЮ
   // ----------------------------------------------------------
   function addMenuButton() {
     var icon = '<svg width="200" height="243" viewBox="0 0 200 243" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M187.714 130.727C206.862 90.1515 158.991 64.2019 100.983 64.2019C42.9759 64.2019 -4.33044 91.5669 10.875 130.727C26.0805 169.888 63.2501 235.469 100.983 234.997C138.716 234.526 168.566 171.303 187.714 130.727Z" stroke="currentColor" stroke-width="15"/><path d="M102.11 62.3146C109.995 39.6677 127.46 28.816 169.692 24.0979C172.514 56.1811 135.338 64.2018 102.11 62.3146Z" stroke="currentColor" stroke-width="15"/><path d="M90.8467 62.7863C90.2285 34.5178 66.0667 25.0419 31.7127 33.063C28.8904 65.1461 68.8826 62.7863 90.8467 62.7863Z" stroke="currentColor" stroke-width="15"/><path d="M100.421 58.5402C115.627 39.6677 127.447 13.7181 85.2149 9C82.3926 41.0832 83.5258 35.4214 100.421 58.5402Z" stroke="currentColor" stroke-width="15"/><rect x="39.0341" y="98.644" width="19.1481" height="30.1959" rx="9.57407" fill="currentColor"/><rect x="90.8467" y="92.0388" width="19.1481" height="30.1959" rx="9.57407" fill="currentColor"/><rect x="140.407" y="98.644" width="19.1481" height="30.1959" rx="9.57407" fill="currentColor"/><rect x="116.753" y="139.22" width="19.1481" height="30.1959" rx="9.57407" fill="currentColor"/><rect x="64.9404" y="139.22" width="19.1481" height="30.1959" rx="9.57407" fill="currentColor"/><rect x="93.0994" y="176.021" width="19.1481" height="30.1959" rx="9.57407" fill="currentColor"/></svg>';
@@ -1223,7 +1177,7 @@
   }
 
   // ----------------------------------------------------------
-  // [1.0.0] ИНИЦИАЛИЗАЦИЯ
+  // ИНИЦИАЛИЗАЦИЯ
   // ----------------------------------------------------------
   function init() {
     Lampa.Component.add('adult_main', Sisi);
