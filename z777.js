@@ -1,66 +1,37 @@
 // =============================================================
-// z777.js — Парсер Zoo-XVideos для AdultJS / AdultPlugin (Lampa)
-// Version  : 1.0.0
-// Architecture: Based on XDS (routing) & YouJizz (DOM parsing)
+// z777.js — Парсер Zoo-XVideos для AdultJS / AdultPlugin
+// Version  : 1.2.0 (Fix Pagination & Search)
+// GLM 5 TURBO
 // =============================================================
-
 (function () {
   'use strict';
 
-  // ----------------------------------------------------------
-  // КОНФИГ
-  // ----------------------------------------------------------
   var NAME = 'z777';
   var HOST = 'https://zoo-xvideos.com';
+  var TAG  = '[' + NAME + ']';
 
   // ----------------------------------------------------------
-  // КАТЕГОРИИ
-  // ----------------------------------------------------------
-  var CATS = [
-    { title: '🇷🇺 Русское',        val: 'a1-russian'  },
-    { title: '👩 Зрелые (MILF)',   val: 'milf-porn'   },
-  ];
-
- // Куки для обхода Age Gate (из arch.txt)
-  var HEADERS = {
-    'Cookie': 'disclaimer=</span>'
-  };
-
-  // ----------------------------------------------------------
-  // HTTP ЗАПРОСЫ (с поддержкой Age Gate)
+  // HTTP ЗАПРОСЫ
   // ----------------------------------------------------------
   function httpGet(url, success, error) {
-    // Приоритет: встроенный networkRequest плагина (он сам проксирует)
-    if (window.AdultPlugin &&
-        typeof window.AdultPlugin.networkRequest === 'function') {
-      window.AdultPlugin.networkRequest(url, success, error, HEADERS);
+    if (window.AdultPlugin && typeof window.AdultPlugin.networkRequest === 'function') {
+      window.AdultPlugin.networkRequest(url, success, error);
     } else {
-      // Фоллбэк на fetch, если плагин недоступен (требуется прокси из-за CORS)
       if (typeof fetch === 'undefined') { error('fetch unavailable'); return; }
-      
-      // Примечание: в реальном окружении Lampa AdultPlugin сеть работает через своего клиента.
-      // Здесь просто эмуляция.
-      fetch(url, {
-        method: 'GET',
-        headers: HEADERS
-      })
-        .then(function (r) {
-          if (!r.ok) throw new Error('HTTP ' + r.status);
-          return r.text();
-        })
-        .then(success)
-        .catch(error);
+      fetch(url).then(function (r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.text();
+      }).then(success).catch(error);
     }
   }
 
   // ----------------------------------------------------------
-  // ПАРСИНГ КАРТОЧЕК (DOMParser)
-  // Селекторы из arch.txt / json.txt
+  // ПАРСИНГ КАРТОЧЕК (использованы точные селекторы из config)
   // ----------------------------------------------------------
-  function parseCards(html) {
+  function parsePlaylist(html) {
     if (!html) return [];
     var doc   = new DOMParser().parseFromString(html, 'text/html');
-    var items = doc.querySelectorAll('.thumb'); // Основной селектор
+    var items = doc.querySelectorAll('.thumb'); // container: ".thumb"
     var cards = [];
 
     for (var i = 0; i < items.length; i++) {
@@ -71,23 +42,21 @@
   }
 
   function _parseCard(el) {
-    // 1. Ссылка
-    var aEl = el.querySelector('a');
+    // link: ".thumb a[href]"
+    var aEl = el.querySelector('a[href]');
     if (!aEl) return null;
     var href = aEl.getAttribute('href') || '';
     if (href && href.indexOf('http') !== 0) href = HOST + href;
 
-    // 2. Название
-    // Приоритет: a[title] -> img[alt] -> текст внутри
-    var name = aEl.getAttribute('title') || '';
+    // title: ".thumb a[title]"
+    var name = (aEl.getAttribute('title') || '').trim();
     if (!name) {
       var imgEl = el.querySelector('img');
-      if (imgEl) name = imgEl.getAttribute('alt') || '';
+      if (imgEl) name = (imgEl.getAttribute('alt') || '').trim();
     }
-    name = name.trim();
     if (!name) return null;
 
-    // 3. Постер (Картинка)
+    // thumbnailAttr: "src"
     var imgEl = el.querySelector('img');
     var picture = '';
     if (imgEl) {
@@ -95,42 +64,42 @@
       if (picture && picture.indexOf('//') === 0) picture = 'https:' + picture;
     }
 
-    // 4. Длительность
+    // duration: ".thumb span.counter" (из config)
     var time = '';
-    var spanEl = el.querySelector('span'); // В анализе указано .thumb span
+    var spanEl = el.querySelector('span.counter');
     if (spanEl) {
       var t = spanEl.textContent.trim();
-      // Простая валидация формата времени (цифры и двоеточие)
       if (/[\d:]+/.test(t)) time = t;
     }
 
-    // ----------------------------------------------------------
-    // ФОРМИРОВАНИЕ ОБЪЕКТА КАРТОЧКИ
-    // Добавляем поля img, poster, background_image (требование 2)
-    // ----------------------------------------------------------
     return {
       name:             name,
-      video:            href, // Ссылка на страницу видео
+      video:            href,
       picture:          picture,
-      img:              picture,         // ← Требование AdultJS
-      poster:           picture,         // ← Требование AdultJS
-      background_image: picture,         // ← Требование AdultJS
-      preview:          picture,         // Превью (обычно клип, здесь статика)
+      img:              picture,
+      poster:           picture,
+      background_image: picture,
+      preview:          null,
       time:             time,
-      quality:          '',              // На сайте не обозначено явно
-      json:             true,            // Требуем перехода на страницу для получения ссылки
-      related:          true,
-      model:            null,
+      quality:          '',
+      json:             true,
       source:           NAME
     };
   }
 
   // ----------------------------------------------------------
-  // ПОЛУЧЕНИЕ ПРЯМОЙ ССЫЛКИ НА ВИДЕО
-  // Метод: video_tag (src из <video>)
+  // ПОЛУЧЕНИЕ ПРЯМОЙ ССЫЛКИ НА ВИДЕО (оставлено без изменений)
   // ----------------------------------------------------------
   function getVideoLinks(videoPageUrl, success, error) {
     httpGet(videoPageUrl, function (html) {
+      // Сначала пробуем вытянуть прямую ссылку с CDN (videos.zoo-xvideos.com)
+      var mp4Match = html.match(/https?:\/\/videos\.zoo-xvideos\.com\/[^"'\s]+\.mp4[^"'\s]*/);
+      if (mp4Match) {
+        success({ 'HD': mp4Match[0] });
+        return;
+      }
+
+      // Fallback: Парсинг тега <video>
       var doc = new DOMParser().parseFromString(html, 'text/html');
       var vid = doc.querySelector('video');
       
@@ -139,14 +108,13 @@
         if (src.indexOf('//') === 0) src = 'https:' + src;
         success({ 'auto': src });
       } else {
-        // Попытка найти source внутри video
         var source = doc.querySelector('video source');
         if (source && source.src) {
            var src2 = source.src;
            if (src2.indexOf('//') === 0) src2 = 'https:' + src2;
            success({ 'auto': src2 });
         } else {
-          error('Не найден тег <video> на странице');
+          error('Не найден тег <video> или ссылка на CDN');
         }
       }
     }, error);
@@ -159,115 +127,100 @@
     return [
       {
         title:        '🔍 Поиск',
-        search_on:    true,             // Активирует кнопку фильтра в Lampa
-        playlist_url: NAME + '/search/' // Шаблон для роутера
+        search_on:    true,
+        playlist_url: NAME + '/search/'
       },
       {
-        title:        '🔥 Топ видео',
-        playlist_url: NAME + '/top'
-      },
-      {
-        title:        '🆕 Новинки',
+        title:        '🆕 Последнее',
         playlist_url: NAME + '/new'
       },
       {
-        title:        '📂 Категории',
-        playlist_url: 'submenu',
-        submenu:      CATS.map(function (c) {
-          return {
-            title:        c.title,
-            playlist_url: NAME + '/cat/' + c.val
-          };
-        })
+        title:        '🎬 Длинные',
+        playlist_url: NAME + '/long'
       }
     ];
   }
 
   // ----------------------------------------------------------
-  // ПОСТРОЕНИЕ URL
-  // Согласно arch.txt: pagination &page={N}, search ?q=...
+  // РОУТЕР И ПАГИНАЦИЯ
   // ----------------------------------------------------------
-  function buildUrl(type, query, page) {
-    page = page || 1;
-    var url = HOST + '/';
-
-    if (type === 'search' && query) {
-      url += encodeURIComponent(query);
-    } else if (type === 'new') {
-      // Новинки обычно без параметров или /new/
-      url += '?sort=new'; // Примерная логика, если есть сортировка
-    }
-    // top или просто main оставляем корень или ?page=
-
-    if (page > 1) {
-      var separator = url.indexOf('?') !== -1 ? '&' : '?';
-      url += separator + 'page=' + page;
-    }
-
-    return url;
-  }
-
-  // ----------------------------------------------------------
-  // РОУТЕР (Smart Routing)
-  // Логика из xds_1.1.0: разбор ?search= и путей
-  // ----------------------------------------------------------
-  function parseSearchParam(url) {
-    var match = url.match(/[?&]search=([^&]*)/);
-    if (match) return decodeURIComponent(match[1]);
-    return null;
-  }
-
   function routeView(url, page, success, error) {
-    console.log('[z777] routeView → "' + url + '" page=' + page);
+    console.log(TAG, 'routeView → "' + url + '" page=' + page);
 
+    var fetchUrl = '';
     var PREFIX = NAME + '/';
 
-    // 1. Поиск через фильтр Lampa: z777/search/?search=query
-    var searchParam = parseSearchParam(url);
-    if (searchParam !== null) {
-      fetchPage(buildUrl('search', searchParam, page), page, success, error);
-      return;
+    // 1. Поиск через фильтр Lampa (переход из меню)
+    var searchMatch = url.match(/[?&]search=([^&]*)/);
+    if (searchMatch) {
+      var query = decodeURIComponent(searchMatch[1]).trim();
+      fetchUrl = HOST + '/videosearch/' + encodeURIComponent(query) + '/';
+      if (page > 1) fetchUrl += page + '/';
+      return loadPage(fetchUrl, page, success, error);
     }
 
-    // 2. Прямой путь: z777/search/query
+    // 2. Внутренний поиск (пагинация внутри поиска)
     if (url.indexOf(PREFIX + 'search/') === 0) {
       var rawQuery = url.replace(PREFIX + 'search/', '').split('?')[0];
-      var query    = decodeURIComponent(rawQuery).trim();
-      fetchPage(buildUrl('search', query, page), page, success, error);
-      return;
+      var queryStr = decodeURIComponent(rawQuery).trim();
+      if (queryStr) {
+        fetchUrl = HOST + '/videosearch/' + encodeURIComponent(queryStr) + '/';
+        if (page > 1) fetchUrl += page + '/';
+        return loadPage(fetchUrl, page, success, error);
+      }
     }
 
-    // 3. Разделы: /top, /new
-    if (url.indexOf(PREFIX + 'top') === 0) {
-      fetchPage(HOST + '/?page=' + page, page, success, error); // Топ обычно корень
-      return;
+    // 3. Раздел "Последнее" (/newreleases/)
+    if (url.indexOf(PREFIX + 'new') === 0) {
+      fetchUrl = HOST + '/newreleases/';
+      if (page > 1) fetchUrl += page + '/';
+      return loadPage(fetchUrl, page, success, error);
+    }
+
+    // 4. Раздел "Длинные" (/longplays/)
+    if (url.indexOf(PREFIX + 'long') === 0) {
+      fetchUrl = HOST + '/longplays/';
+      if (page > 1) fetchUrl += page + '/';
+      return loadPage(fetchUrl, page, success, error);
+    }
+
+    // 5. Главная / Топ (По умолчанию)
+    // Страница 1: https://zoo-xvideos.com/
+    // Страница 2: https://zoo-xvideos.com/topclips/2/
+    if (page === 1) {
+      fetchUrl = HOST + '/';
+    } else {
+      fetchUrl = HOST + '/topclips/' + page + '/';
     }
     
-    if (url.indexOf(PREFIX + 'new') === 0) {
-      fetchPage(HOST + '/?sort=date&page=' + page, page, success, error); // Предполагаемый параметр
-      return;
-    }
-
-    // 4. Default
-    fetchPage(HOST + '/?page=' + page, page, success, error);
+    loadPage(fetchUrl, page, success, error);
   }
 
   // ----------------------------------------------------------
   // ЗАГРУЗКА СТРАНИЦЫ
   // ----------------------------------------------------------
-  function fetchPage(loadUrl, page, success, error) {
-    console.log('[z777] fetchPage → ' + loadUrl);
+  function loadPage(loadUrl, page, success, error) {
+    console.log(TAG, 'loadPage → ' + loadUrl);
     httpGet(loadUrl, function (html) {
-      var results = parseCards(html);
+      var results = parsePlaylist(html);
+
       if (!results.length) {
-        // Пустой результат - это не всегда ошибка, но для парсера предупреждение
-        console.warn('[z777] Нет карточек на странице, возможно конец или блокировка');
+        console.warn(TAG, 'Нет карточек на странице');
+        // Если карточек нет, значит мы дошли до конца (или ошибка). 
+        // Возвращаем пустой массив без ошибки, чтобы Lampa просто остановил пагинацию.
+        success({
+          results:     [],
+          collection:  true,
+          total_pages: page, 
+          menu:        buildMenu()
+        });
+        return;
       }
 
       success({
         results:     results,
         collection:  true,
-        total_pages: results.length >= 20 ? page + 5 : page, // Простая пагинация
+        total_pages: results.length >= 20 ? page + 1 : page, // ИСПРАВЛЕНО: безопасный инкремент
         menu:        buildMenu()
       });
     }, error);
@@ -279,15 +232,12 @@
   var Z777Parser = {
 
     main: function (params, success, error) {
-      // Стартовая страница
-      fetchPage(HOST + '/?page=1', 1, success, error);
+      routeView(NAME + '/top', 1, success, error);
     },
 
     view: function (params, success, error) {
       var page = parseInt(params.page, 10) || 1;
       var url  = params.url || (NAME + '/top');
-      
-      // Делегируем роутеру
       routeView(url, page, success, error);
     },
 
@@ -300,10 +250,18 @@
         return;
       }
 
-      fetchPage(buildUrl('search', query, page), page, function (data) {
-        data.title = 'ZooXVideos: ' + query;
-        data.url   = NAME + '/search/' + encodeURIComponent(query);
-        success(data);
+      var fetchUrl = HOST + '/videosearch/' + encodeURIComponent(query) + '/';
+      if (page > 1) fetchUrl += page + '/';
+
+      httpGet(fetchUrl, function (html) {
+        var results = parsePlaylist(html);
+        success({
+          title:       'ZooXV: ' + query,
+          results:     results,
+          collection:  true,
+          total_pages: results.length >= 20 ? page + 1 : page,
+          url:         NAME + '/search/' + encodeURIComponent(query) // Важно для continuation пагинации
+        });
       }, error);
     },
 
@@ -316,30 +274,19 @@
   // РЕГИСТРАЦИЯ В СИСТЕМЕ
   // ----------------------------------------------------------
   function tryRegister() {
-    if (window.AdultPlugin &&
-        typeof window.AdultPlugin.registerParser === 'function') {
+    if (window.AdultPlugin && typeof window.AdultPlugin.registerParser === 'function') {
       window.AdultPlugin.registerParser(NAME, Z777Parser);
-      console.log('[z777] v1.0.0 зарегистрирован');
-      
-      // Уведомление (опционально, как в примерах)
-      try {
-        setTimeout(function () {
-          Lampa.Noty.show('Z777 [zoo-xvideos] подключён', { time: 2500 });
-        }, 600);
-      } catch (e) {}
-      
+      console.log(TAG, 'v1.2.0 зарегистрирован');
       return true;
     }
     return false;
   }
 
-  // Поллинг готовности API
   if (!tryRegister()) {
-    var _elapsed = 0;
     var _poll = setInterval(function () {
-      _elapsed += 100;
-      if (tryRegister() || _elapsed >= 10000) clearInterval(_poll);
-    }, 100);
+      if (tryRegister()) clearInterval(_poll);
+    }, 200);
+    setTimeout(function () { clearInterval(_poll); }, 5000);
   }
 
 })();
