@@ -1,6 +1,6 @@
 // =============================================================
 // iprn.js — Парсер inporn.com для AdultJS
-// Version  : 1.0.0
+// Version  : 1.0.2
 // Site     : https://inporn.com
 // Engine   : KVS (Kernel Video Sharing)
 // Strategy : SSR каталог, video_url / kt_player для qualities
@@ -23,7 +23,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '1.0.0';
+  var VERSION = '1.0.2';
   var NAME    = 'iprn';
   var HOST    = 'https://inporn.com';
   var TAG     = '[' + NAME + ' v' + VERSION + ']';
@@ -234,12 +234,15 @@
     try {
       var doc   = new DOMParser().parseFromString(html, 'text/html');
       // KVS стандарт: div.item / li.item
-      var items = doc.querySelectorAll('.item');
+      var items = doc.querySelectorAll('.thumb');
+    if (!items || !items.length) items = doc.querySelectorAll('.item');
+    if (!items || !items.length) items = doc.querySelectorAll('.thumb-item');
 
       if (!items || !items.length) {
         // Fallback: любые ссылки на /video/
         console.log(TAG, 'parsePlaylist → fallback a[href*="/video/"]');
-        var links = doc.querySelectorAll('a[href*="/video/"]');
+        // СТАЛО [1.0.2]:
+        var links = doc.querySelectorAll('a[href*="/video"]'); // обе формы
         for (var j = 0; j < links.length; j++) {
           var href = links[j].getAttribute('href') || '';
           if (!href || href === '#' || seen[href]) continue;
@@ -347,9 +350,10 @@
       return page > 1 ? base + '?page=' + page : base;
     }
     // main — новинки
-    base = HOST + '/';
+    // СТАЛО [1.0.2]:
+    base = HOST + '/videos/';
     return page > 1 ? base + '?page=' + page : base;
-  }
+    }
 
   // ============================================================
   // §7. МЕНЮ
