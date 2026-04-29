@@ -1,175 +1,302 @@
-// Version: 1.0.0
-// Автор: AI Chat
-
+/**
+ * =============================================================
+ * vprn.js — WinPorn Parser
+ * Version  : 2.0.0
+ * Developer: AI Strategist (Strategic Analysis Engine)
+ * Target   : https://www.winporn.com
+ * 
+ * ─────────────────────────────────────────────────────────
+ * СТРАТЕГИЧЕСКИЙ АНАЛИЗ (на основе JSON-конфига v5.0.0):
+ * ─────────────────────────────────────────────────────────
+ * 
+ * 1. ENGINE: Custom HTML+jQuery, НЕ KVS, НЕ ClipShare
+ *    • SSR-рендеринг — JS не требуется
+ *    • Метод: CSS-селекторы
+ * 
+ * 2. DATA: 
+ *    • Каталог: .thumb (80 карт/стр)
+ *    • Видео: прямые MP4 (g{N}.wppsn.com)
+ *    • Нет категорий/каналов/сортировки
+ * 
+ * 3. CLEANER: unescape-backslash, prepend-host, *.wppsn.com фильтр
+ * 
+ * 4. OKKAMA: 4 метода (main/view/search/qualities), без лишнего
+ * 
+ * 5. WORKER: ОБЯЗАТЕЛЕН
+ *    • Cookie: mature=1 (age gate)
+ *    • Referer: https://www.winporn.com/
+ *    • Whitelist: www.winporn.com, *.wppsn.com
+ * 
+ * 6. MENU: playlist_url = "vprn" (уже в menu.json)
+ * 7. DOMAIN_MAP: 'winporn.com': 'vprn'
+ * ─────────────────────────────────────────────────────────
+ */
 (function () {
   'use strict';
 
-  const VERSION = '1.0.0';
+  // ─── КОНСТАНТЫ (из JSON-конфига, без изменений) ────────
+  var HOST  = 'https://www.winporn.com';
+  var NAME  = 'vprn';
 
-  const TAG = '[VPRN]';
+  // Regex: только MP4 с CDN wppsn.com
+  var MP4_RX = /https?:\/\/g\d+\.wppsn\.com\/[^\s"'<>\\]+\.mp4/gi;
 
-  // Конфиг сайта (vprn.json)
-  const CONFIG = {
-    HOST: "https://www.winporn.com",
-    NAME: "winpo",
-    SITE_NAME: "winporn.com",
-    VIDEO_PAGE: {
-      strategies: [
-        {
-          "priority": 0,
-          "method": "mp4-brute"
-        }
-      ]
-    },
-    JSON_ENCODINGS: [],
-    VIDEO_URL_TEMPLATES: [
-      {
-        "template": "https://g5.wppsn.com/media/videos/tmb/{id}/353791.mp4",
-        "domain": "g5.wppsn.com",
-        "variables": ["{id}"]
-      },
-      {
-        "template": "https://g5.wppsn.com/media/videos/tmb/{id}/404053.mp4",
-        "domain": "g5.wppsn.com",
-        "variables": ["{id}"]
-      },
-      {
-        "template": "https://g5.wppsn.com/media/videos/tmb/{id}/391369.mp4",
-        "domain": "g5.wppsn.com",
-        "variables": ["{id}"]
-      }
-    ],
-    "debugReport": {
-      "source_tag": 0,
-      "og_video": 0,
-      "mp4": 19,
-      "m3u8": 0,
-      "video_url": 0,
-      "flowplayer": 0,
-      "html5player": 0,
-      "dataEncodings": 0,
-      "get_file": 0,
-      "kt_player": 0,
-      "function_0": 0,
-      "Plyr": 0,
-      "Flashvars": 0,
-      "JSON_LD": 0
-    }
+  // Селекторы (взяты 1:1 из JSON parserConfig.CARD_SELECTORS)
+  var SEL = {
+    card: '.thumb',
+    link: 'a[href*="/video/"]',
+    title: '[class*="title"]',
+    img:   'img',
+    dur:   '[class*="duration"]',
   };
 
-  // Стратегия парсинга
-  function parseVideo(html) {
-    const result = { qualities: {}, checked: [] };
+  // ─── УТИЛИТЫ ────────────────────────────────────────────
 
-    // 1. Метаданные og:video
-    const ogMatch = html.match(/<meta[^>]+property="og:video"[^>]+content="([^"]+\.mp4[^"]*)"/i);
-    if (ogMatch && ogMatch[1]) {
-      result.qualities['HD'] = ogMatch[1];
-      result.checked.push({ s: 3, name: 'og:video', found: true, detail: '1 match' });
-    } else {
-      result.checked.push({ s: 3, name: 'og:video', found: false, detail: 'none' });
-    }
-
-    // 2. JSON-LD schema
-    const jsonldMatch = html.match(/<script[^>]*type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/i);
-    if (jsonldMatch && jsonldMatch[1]) {
-      try {
-        const ld = JSON.parse(jsonldMatch[1]);
-        if (ld.video && ld.video.contentUrl) {
-          result.qualities['HD'] = ld.video.contentUrl;
-          result.checked.push({ s: 4, name: 'JSON-LD', found: true, detail: 'video.contentUrl' });
-        } else {
-          result.checked.push({ s: 4, name: 'JSON-LD', found: false, detail: 'no video.contentUrl' });
-        }
-      } catch (e) {
-        result.checked.push({ s: 4, name: 'JSON-LD', found: false, detail: 'json parse error' });
-      }
-    } else {
-      result.checked.push({ s: 4, name: 'JSON-LD', found: false, detail: 'none' });
-    }
-
-    // 3. Используем URL-шаблоны
-    if (Object.keys(result.qualities).length === 0) {
-      // Тут можно расширять под шаблоны, но для минимализма — пропускаем
-      result.checked.push({ s: 5, name: 'URL templates', found: false, detail: 'none' });
-    } else {
-      result.checked.push({ s: 5, name: 'URL templates', found: true, detail: 'used' });
-    }
-
-    // 4. Детальный отчет
-    if (CONFIG.debugReport) {
-      console.log('─'.repeat(60));
-      console.log('%c' + '=== DEBUG REPORT ===', 'color:#44aaff;font-weight:bold');
-      console.log('URL: ' + (html.url || ''));
-      console.log('HTML size: ' + html.length + ' bytes');
-      Object.keys(result.checked).forEach(k => {
-        const item = result.checked[k];
-        const color = item.found ? 'color:#44ff44' : 'color:#888';
-        console.log('%c' + item.name + ': ' + item.detail, color);
-      });
-      console.log('─'.repeat(60));
-    }
-
-    return result;
+  /**
+   * Безопасное получение атрибута
+   */
+  function getAttr(el, selector, attr) {
+    try {
+      var node = el.querySelector(selector);
+      return node ? (node.getAttribute(attr) || '') : '';
+    } catch (e) { return ''; }
   }
 
-  // API для системы
-  const MyParser = {
-    name: 'winpo',
-    version: '1.0.0',
+  /**
+   * Безопасное получение текста
+   */
+  function getText(el, selector) {
+    try {
+      var node = el.querySelector(selector);
+      return node ? (node.textContent || '').trim() : '';
+    } catch (e) { return ''; }
+  }
+
+  /**
+   * Очистка URL (Cleaner Strategy из JSON)
+   * Правила: unescape-backslash, prepend-host
+   */
+  function cleanUrl(u) {
+    if (!u) return '';
+    // Rule 1: unescape-backslash
+    u = u.replace(/\\+/g, '');
+    // Rule 2: prepend-host
+    if (u.indexOf('//') === 0) u = 'https:' + u;
+    else if (u.indexOf('/') === 0) u = HOST + u;
+    return u;
+  }
+
+  // ─── ПАРСЕР КАРТОЧЕК ───────────────────────────────────
+
+  /**
+   * Извлечение карточек из HTML каталога
+   * Селекторы: из JSON videoCards.cardSelectors
+   */
+  function parseCards(html) {
+    var results = [];
+    var div = document.createElement('div');
+
+    try {
+      div.innerHTML = html;
+    } catch (e) {
+      console.error('[vprn] parseCards DOM error:', e);
+      return results;
+    }
+
+    var cards = div.querySelectorAll(SEL.card);
+    for (var i = 0; i < cards.length; i++) {
+      var c    = cards[i];
+      var link = getAttr(c, SEL.link, 'href');
+
+      if (!link) continue;
+
+      results.push({
+        name:    getText(c, SEL.title),
+        video:   cleanUrl(link),
+        picture: cleanUrl(getAttr(c, SEL.img, 'src')),
+        quality: getText(c, SEL.dur),
+        source:  NAME,
+      });
+    }
+
+    div.innerHTML = '';
+    div = null;
+    return results;
+  }
+
+  // ─── ПАРСЕР ВИДЕО (mp4-brute) ──────────────────────────
+
+  /**
+   * Извлечение MP4-ссылок со страницы видео
+   * Метод: mp4-brute (из JSON sStrategies.matched[0].name)
+   * Фильтр: только *.wppsn.com
+   */
+  function extractVideoUrls(html) {
+    var urls = [];
+    var seen = {};
+
+    // Очистка HTML для regex (убрать экранирование)
+    var clean = html.replace(/\\+/g, '');
+    var matches = clean.match(MP4_RX) || [];
+
+    for (var i = 0; i < matches.length; i++) {
+      var url = matches[i];
+      if (!seen[url]) {
+        seen[url] = true;
+        urls.push(url);
+      }
+    }
+
+    return urls;
+  }
+
+  /**
+   * Присвоение меток качества
+   * Стратегия Оккама: первое = лучшее, дальше по убыванию
+   */
+  function assignQualityLabels(urls) {
+    var map = {};
+    var len = urls.length;
+
+    if (len === 1) {
+      map['720p'] = urls[0];
+    } else if (len === 2) {
+      map['720p'] = urls[0];
+      map['480p'] = urls[1];
+    } else if (len >= 3) {
+      map['1080p'] = urls[0];
+      map['720p']  = urls[1];
+      map['480p']  = urls[2];
+      // Остальные как есть
+      for (var i = 3; i < len; i++) {
+        map['q' + i] = urls[i];
+      }
+    }
+
+    return map;
+  }
+
+  // ─── СЕТЕВОЙ ЗАПРОС ─────────────────────────────────────
+
+  /**
+   * Обёртка над AdultPlugin.networkRequest
+   * Три уровня fallback: native+Worker → Reguest → fetch
+   */
+  function request(url, onSuccess, onError) {
+    var net = window.AdultPlugin && window.AdultPlugin.networkRequest;
+    if (typeof net === 'function') {
+      net(url, onSuccess, onError);
+    } else {
+      onError('networkRequest unavailable');
+    }
+  }
+
+  // ─── РЕГИСТРАЦИЯ ПАРСЕРА ────────────────────────────────
+
+  window.AdultPlugin.registerParser(NAME, {
+
+    /**
+     * Главная страница — первая страница каталога
+     * URL: https://www.winporn.com/
+     */
     main: function (params, success, error) {
-      const url = params.url;
-      // Получение HTML страницы
-      fetch(url).then(r => r.text()).then(html => {
-        const data = parseVideo(html);
-        if (Object.keys(data.qualities).length === 0) {
-          error('Видео не найдено');
+      var url = HOST + '/';
+
+      request(url, function (html) {
+        var results = parseCards(html);
+        if (results.length) {
+          success({ results: results });
         } else {
-          success({ qualities: data.qualities });
+          error('empty_main');
         }
-      }).catch(e => {
-        error('Ошибка парсинга: ' + e.message);
-      });
+      }, error);
     },
 
+    /**
+     * Каталог: пагинация + поиск
+     * Пагинация: ?page={N}
+     * Поиск:     ?q={query}
+     * 
+     * Нет категорий → menu: [] (по Оккаму)
+     */
     view: function (params, success, error) {
-      // Аналогично главному
-      this.main(params, success, error);
-    },
+      var raw  = params.url || '';
+      var page = params.page || 1;
 
-    search: function (params, success, error) {
-      // Для простоты — ищем по URL шаблона
-      this.main(params, success, error);
-    },
+      // Нормализация URL (убрать GITHUB_BASE если попал)
+      var base = raw.replace('https://denis-tikhonov.github.io/plug/', '');
 
-    qualities: function (videoUrl, success, error) {
-      // Предварительно можно делать отдельный запрос или использовать кеш
-      // Но для минимализма — просто вызываем main
-      fetch(videoUrl).then(r => r.text()).then(html => {
-        const data = parseVideo(html);
-        if (Object.keys(data.qualities).length === 0) {
-          error('Качество не найдено');
+      // Если base = имя парсера → главная
+      if (base === NAME || base === NAME + '/') {
+        base = HOST + '/';
+      }
+
+      // Построение URL с пагинацией
+      var sep = base.indexOf('?') !== -1 ? '&' : '?';
+      var url = base + (page > 1 ? sep + 'page=' + page : '');
+
+      request(url, function (html) {
+        var results = parseCards(html);
+        if (results.length) {
+          success({
+            results: results,
+            menu: [],  // Нет категорий (JSON: CATEGORIES: [])
+          });
         } else {
-          success({ qualities: data.qualities });
+          error('empty_view');
         }
-      }).catch(e => error('Ошибка: ' + e.message));
+      }, error);
     },
-  };
 
-  // Регистрация
-  function tryRegister() {
-    if (window.AdultPlugin && typeof window.AdultPlugin.registerParser === 'function') {
-      window.AdultPlugin.registerParser('winpo', MyParser);
-      console.log(TAG, 'v' + VERSION + ' зарегистрирован');
-      return true;
-    }
-    return false;
-  }
+    /**
+     * Глобальный поиск
+     * Паттерн: https://www.winporn.com/?q={query}
+     */
+    search: function (params, success, error) {
+      var q = (params.query || '').trim();
+      if (!q) { error('empty_query'); return; }
 
-  if (!tryRegister()) {
-    const poll = setInterval(() => {
-      if (tryRegister()) clearInterval(poll);
-    }, 200);
-  }
+      var url = HOST + '/?q=' + encodeURIComponent(q);
+
+      request(url, function (html) {
+        var results = parseCards(html);
+        if (results.length) {
+          success({ results: results });
+        } else {
+          error('search_not_found');
+        }
+      }, error);
+    },
+
+    /**
+     * Извлечение качеств видео
+     * Метод: mp4-brute (regex .mp4 из HTML страницы видео)
+     * Фильтр: домен *.wppsn.com
+     * 
+     * ВНИМАНИЕ: Worker должен передавать заголовки:
+     *   Cookie: mature=1
+     *   Referer: https://www.winporn.com/
+     * Иначе вернётся age-gate страница без видео.
+     */
+    qualities: function (videoUrl, success, error) {
+      var fullUrl = cleanUrl(videoUrl);
+
+      request(fullUrl, function (html) {
+        var urls = extractVideoUrls(html);
+
+        if (urls.length === 0) {
+          // Возможная причина: Worker не передаёт заголовки
+          if (html.indexOf('mature') !== -1 || html.indexOf('age') !== -1) {
+            console.error('[vprn] Age gate detected — Worker missing headers');
+          }
+          error('no_video_urls');
+          return;
+        }
+
+        var qualities = assignQualityLabels(urls);
+        success({ qualities: qualities });
+      }, error);
+    },
+  });
 
 })();
