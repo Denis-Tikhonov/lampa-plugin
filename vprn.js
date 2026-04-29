@@ -1,200 +1,219 @@
 (function () {
   'use strict';
 
-  var AI_GENERATOR = {
-    name: 'Chad Auto Model',
-    generator: 'Custom',
-    version: '1.0.0',
-    template: 'UNIVERSAL_TEMPLATE',
-    template_version: '1.4.0',
-    generated: '2024-05-22',
-    purpose: 'adultjs_parser',
-  };
-
-  var MIN_CORE_VERSION = '1.6.0';
-
   // ============================================================
-  // §1. КОНФИГ
+  // §1. КОНФИГУРАЦИЯ И СТРАТЕГИЯ
   // ============================================================
-  var SITE_NAME = 'winporn.com';
-  var HOST      = 'https://www.winporn.com';
-  var NAME      = 'winpo'; // Сгенерировано: w + inpo
-  var VERSION   = '1.1.0';
-  var TAG       = '[' + NAME + ']';
+  var NAME    = 'winpo';
+  var VERSION = '1.3.0';
+  var HOST    = 'https://www.winporn.com';
+  var TAG     = 'WINPO';
 
-  // Категории (можно дополнить из сайта)
-  var CATEGORIES = [
-    { title: 'Wife', slug: 'wife' },
-    { title: 'Amateur', slug: 'amateur' },
-    { title: 'Anal', slug: 'anal' },
-    { title: 'POV', slug: 'pov' }
+  // Регулярные выражения для Block 1 (S1)
+  var VIDEO_RULES = [
+    { name: 'Direct MP4',  re: /"(https?:[^"]+\.mp4(?:\?[^"]+)?)"/gi, quality: 'HD' },
+    { name: 'KVS Config',  re: /video_url:\s*'([^']+)'/gi,            quality: 'HD' },
+    { name: 'HLS Stream',  re: /"(https?:[^"]+\.m3u8(?:\?[^"]+)?)"/gi, quality: 'HLS' }
   ];
 
+  var CATEGORIES = [
+    { title: 'Anal', slug: 'anal' },
+    { title: 'Asian', slug: 'asian' },
+    { title: 'Big Tits', slug: 'big-tits' },
+    { title: 'Blowjob', slug: 'blowjob' },
+    { title: 'Creampie', slug: 'creampie' },
+    { title: 'Milf', slug: 'milf' },
+    { title: 'Teen', slug: 'teen' }
+  ];
+
+  var CHANNELS = [];
+
   // ============================================================
-  // §5. ИЗВЛЕЧЕНИЕ КАЧЕСТВА (Система стратегий)
+  // §2. DEBUG И ЛОГИРОВАНИЕ
   // ============================================================
-  function extractQualities(html, url) {
+  var DEBUG_MODE    = true;
+  var DEBUG_COLORS   = true;
+  var DEBUG_URL_LEN  = 100;
+
+  function logInfo(tag, msg) {
+    if (!DEBUG_MODE) return;
+    if (DEBUG_COLORS) console.log('%c[' + tag + ']%c ' + msg, 'color:#44aaff;font-weight:bold', 'color:#88ccff');
+    else console.log('[' + tag + '] ' + msg);
+  }
+
+  function logSuccess(tag, msg) {
+    if (!DEBUG_MODE) return;
+    if (DEBUG_COLORS) console.log('%c[' + tag + ' OK]%c ' + msg, 'color:#44ff44;font-weight:bold', 'color:#88ff88');
+    else console.log('[' + tag + ' OK] ' + msg);
+  }
+
+  function logWarn(tag, msg) {
+    if (!DEBUG_MODE) return;
+    if (DEBUG_COLORS) console.log('%c[' + tag + ' WARN]%c ' + msg, 'color:#ffaa00;font-weight:bold', 'color:#ffdd44');
+    else console.log('[' + tag + ' WARN] ' + msg);
+  }
+
+  function truncate(str, len) {
+    len = len || DEBUG_URL_LEN;
+    return (str && str.length > len) ? str.substring(0, len) + '...' : str;
+  }
+
+  // ============================================================
+  // §3. ТРАНСПОРТ И HELPERS
+  // ============================================================
+  function httpGet(url, success, error) {
+    if (window.AdultPlugin && typeof window.AdultPlugin.networkRequest === 'function') {
+      window.AdultPlugin.networkRequest(url, success, error);
+    } else {
+      fetch(url).then(function(r){ return r.text(); }).then(success).catch(error);
+    }
+  }
+
+  function cleanUrl(u) {
+    if (!u) return '';
+    try {
+      u = u.replace(/\\\//g, '/').replace(/\\/g, '').trim();
+      if (u.indexOf('//') === 0) u = 'https:' + u;
+      if (u.charAt(0) === '/' && u.charAt(1) !== '/') u = HOST + u;
+      return u;
+    } catch (e) { return u; }
+  }
+
+  function cleanMp4Url(url) {
+    return url.replace(/[?&](rnd|br|_)=\d+/g, '').replace(/[?&]+$/g, '');
+  }
+
+  function slugToTitle(url) {
+    var parts = url.split('/').filter(Boolean);
+    var slug = parts.pop() || '';
+    return slug.replace(/[-_]/g, ' ').replace(/\b\w/g, function(l){ return l.toUpperCase(); });
+  }
+
+  // ============================================================
+  // §5. EXTRACT QUALITIES (The Core)
+  // ============================================================
+  function extractQualities(html, pageUrl) {
     var q = {};
     var checked = [];
+    var have = function () { return Object.keys(q).length > 0; };
+    var add = function (lbl, url) { 
+      var u = cleanUrl(url);
+      if (u && !q[lbl]) q[lbl] = u; 
+    };
 
-    function add(label, src) {
-      if (!src) return;
-      var clean = cleanUrl(src);
-      var res = label.toString().toLowerCase();
-      
-      // Логика определения метки качества
-      var lab = 'SD';
-      if (res.indexOf('1080') !== -1 || res.indexOf('hd') !== -1) lab = '1080p';
-      else if (res.indexOf('720') !== -1) lab = '720p';
-      else if (res.indexOf('480') !== -1) lab = '480p';
-      else if (label === 'auto') lab = 'HD';
-      else lab = label.toUpperCase();
+    // S1. VIDEO_RULES
+    VIDEO_RULES.forEach(function(rule) {
+        var m; while ((m = rule.re.exec(html)) !== null) { add(rule.quality, m[1]); }
+    });
+    checked.push({ s: 1, name: 'VIDEO_RULES', found: have() });
 
-      q[lab] = clean;
-    }
-
-    function have() { return Object.keys(q).length > 0; }
-
-    // S2. Прямые ссылки .mp4 (основная стратегия для winporn согласно json)
+    // S3. og:video
     if (!have()) {
-      var mp4matches = html.match(/https?:\/\/[^"'\s]+\.mp4[^"'\s]*/gi);
-      if (mp4matches) {
-        mp4matches.forEach(function(link, i) {
-          // Исключаем превью-ролики, если они есть в коде
-          if (link.indexOf('tmb') === -1) {
-             add('src' + i, link);
-          }
-        });
-      }
+      var og = html.match(/property="og:video"[^>]+content="([^"]+)"/i);
+      if (og) add('HD', og[1]);
     }
-    checked.push({ s: 2, name: 'direct_mp4', found: have() });
+    checked.push({ s: 3, name: 'og:video', found: have() });
 
-    // S12. KVS-style video_url patterns
+    // S4. HLS m3u8 detection
     if (!have()) {
-      var vurl = html.match(/video_url:\s*['"]([^'"]+)['"]/i);
-      if (vurl) add('HD', vurl[1]);
+      var hls = html.match(/['"](https?:[^'"]+\.m3u8[^'"]*)['"]/i);
+      if (hls) add('HLS', hls[1]);
     }
+    checked.push({ s: 4, name: 'HLS', found: have() });
+
+    // S12. KVS multi-url
+    if (!have()) {
+        var kvs = html.match(/video_url(?:_\d+p)?:\s*'([^']+)'/gi);
+        if (kvs) {
+            kvs.forEach(function(line) {
+                var urlMatch = line.match(/'([^']+)'/);
+                var labelMatch = line.match(/_(\d+p):/);
+                if (urlMatch) add(labelMatch ? labelMatch[1] : 'HD', urlMatch[1]);
+            });
+        }
+    }
+    checked.push({ s: 12, name: 'KVS Multi', found: have() });
 
     return { qualities: q, checked: checked };
   }
 
   // ============================================================
-  // §6. ПАРСИНГ КАРТОЧЕК
+  // §6. ПАРСИНГ ПЛЕЙЛИСТА
   // ============================================================
-  var CARD_SELECTORS = ['.thumb', 'div.thumb'];
+  var CARD_SELECTORS = ['.item', '.video-block', '.thumb-item', '.video-item'];
 
   function parsePlaylist(html) {
-    if (!html) return [];
     var results = [];
-    var temp = document.createElement('div');
-    temp.innerHTML = html;
+    var doc = new DOMParser().parseFromString(html, 'text/html');
+    var items = null;
 
-    var items = temp.querySelectorAll(CARD_SELECTORS.join(','));
-    
-    for (var i = 0; i < items.length; i++) {
-      var item = items[i];
-      var linkEl = item.querySelector('a[href*="/video/"]');
-      if (!linkEl) continue;
-
-      var href = cleanUrl(linkEl.getAttribute('href'));
-      var imgEl = item.querySelector('img');
-      var pic = imgEl ? (imgEl.getAttribute('src') || imgEl.getAttribute('data-src')) : '';
-      
-      var titleEl = item.querySelector('[class*="title"]');
-      var name = titleEl ? titleEl.textContent.trim() : 'Video';
-      
-      var durEl = item.querySelector('[class*="duration"]');
-      var time = durEl ? durEl.textContent.trim() : '';
-
-      results.push({
-        name: name,
-        video: href,
-        picture: cleanUrl(pic),
-        time: time,
-        quality: 'HD',
-        source: NAME
-      });
+    for (var i = 0; i < CARD_SELECTORS.length; i++) {
+      items = doc.querySelectorAll(CARD_SELECTORS[i]);
+      if (items && items.length > 0) break;
     }
+
+    if (!items || items.length === 0) {
+        // Fallback a[href*="/video/"]
+        var links = doc.querySelectorAll('a[href*="/video/"]');
+        links.forEach(function(a) {
+            var href = cleanUrl(a.getAttribute('href'));
+            if (href && results.filter(function(r){return r.video === href}).length === 0) {
+               results.push(makeCard(a.title || slugToTitle(href), href, '', ''));
+            }
+        });
+        return results;
+    }
+
+    items.forEach(function(el) {
+      var link = el.querySelector('a[href*="/video/"]');
+      if (!link) return;
+      var href = cleanUrl(link.getAttribute('href'));
+      var img = el.querySelector('img');
+      var pic = img ? (img.getAttribute('data-original') || img.getAttribute('src')) : '';
+      var title = el.querySelector('.title, .video-title, a[title]') || link;
+      var name = (title.getAttribute('title') || title.textContent).trim();
+      var dur = el.querySelector('.duration, .time');
+      
+      results.push(makeCard(name, href, cleanUrl(pic), dur ? dur.textContent.trim() : ''));
+    });
+
     return results;
   }
 
+  function makeCard(name, href, pic, time) {
+    return { name: name, video: href, picture: pic, time: time, quality: 'HD', json: true, source: NAME };
+  }
+
   // ============================================================
-  // §7. URL BUILDER
+  // §7-9. URL BUILDER & ROUTING
   // ============================================================
   function buildUrl(type, value, page) {
-    var p = parseInt(page, 10) || 1;
-    var base = HOST;
-    var pg = p > 1 ? '?page=' + p : '';
-
-    if (type === 'search') return base + '/?q=' + encodeURIComponent(value) + (p > 1 ? '&page=' + p : '');
-    if (type === 'cat') return base + '/?c=' + value + (p > 1 ? '&page=' + p : '');
-    return base + '/' + pg;
+    var url = HOST;
+    if (type === 'search') url += '/?q=' + encodeURIComponent(value) + '&page=' + page;
+    else if (type === 'cat') url += '/category/' + value + '/?page=' + page;
+    else url += '/?page=' + page;
+    return url;
   }
 
-  // ============================================================
-  // ТРАНСПОРТ И РОУТИНГ (Стандарт из шаблона)
-  // ============================================================
-  function httpGet(url, success, error) {
-    if (window.AdultPlugin && window.AdultPlugin.networkRequest) {
-      window.AdultPlugin.networkRequest(url, success, error);
-    } else {
-      fetch(url).then(function(r){return r.text()}).then(success).catch(error);
+  function routeView(url, page, success, error) {
+    var fetchUrl = buildUrl('main', null, page);
+    if (url.indexOf('search=') !== -1) {
+        fetchUrl = buildUrl('search', decodeURIComponent(url.split('search=')[1]), page);
+    } else if (url.indexOf('/cat/') !== -1) {
+        fetchUrl = buildUrl('cat', url.split('/cat/')[1], page);
     }
+    
+    logInfo(TAG, 'Route: ' + fetchUrl);
+    httpGet(fetchUrl, function(html) {
+      var res = parsePlaylist(html);
+      if (res.length === 0) return error('No content');
+      success({
+        results: res,
+        collection: true,
+        total_pages: res.length >= 20 ? page + 1 : page,
+        menu: buildMenu()
+      });
+    }, error);
   }
 
-  function cleanUrl(raw) {
-    if (!raw) return '';
-    var u = raw.replace(/\\\//g, '/').replace(/\\/g, '');
-    if (u.indexOf('//') === 0) u = 'https:' + u;
-    if (u.charAt(0) === '/' && u.charAt(1) !== '/') u = HOST + u;
-    return u;
-  }
-
-  var MyParser = {
-    main: function (params, success, error) {
-      this.view({ url: NAME + '/new', page: 1 }, success, error);
-    },
-    view: function (params, success, error) {
-      var p = params.page || 1;
-      var url = buildUrl('main', null, p);
-      
-      if (params.url.indexOf('/cat/') !== -1) {
-        url = buildUrl('cat', params.url.split('/cat/')[1], p);
-      } else if (params.url.indexOf('search=') !== -1) {
-        url = buildUrl('search', params.url.split('search=')[1], p);
-      }
-
-      httpGet(url, function (html) {
-        var results = parsePlaylist(html);
-        success({
-          results: results,
-          collection: true,
-          total_pages: results.length >= 20 ? p + 1 : p,
-          menu: [
-            { title: 'Поиск', search_on: true, playlist_url: NAME + '/search/' },
-            { title: 'Категории', playlist_url: 'submenu', submenu: CATEGORIES.map(function(c){ 
-                return { title: c.title, playlist_url: NAME + '/cat/' + c.slug }; 
-              }) 
-            }
-          ]
-        });
-      }, error);
-    },
-    search: function (params, success, error) {
-      var p = params.page || 1;
-      httpGet(buildUrl('search', params.query, p), function (html) {
-        var res = parsePlaylist(html);
-        success({ results: res, collection: true });
-      }, error);
-    },
-    qualities: function (videoPageUrl, success, error) {
-      httpGet(videoPageUrl, function (html) {
-        var data = extractQualities(html, videoPageUrl);
-        if (Object.keys(data.qualities).length > 0) success(data.qualities);
-        else error('Не удалось найти видео');
-      }, error);
-    }
-  };
-
-  if (window.AdultPlugin) window.AdultPlugin.registerParser(NAME, MyParser);
-})();
+  function buildMenu() {
